@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#1B3A4B" />
+    <meta name="description" content="Baixe o Saldo para Android: controle financeiro com assistente de IA." />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <title>Saldo para Android</title>
+    <style>
+      :root {
+        --bg: #ede6d6;
+        --surface: #f8f4ec;
+        --line: #d4c9b2;
+        --text: #10181c;
+        --muted: #56636a;
+        --accent: #1b3a4b;
+        --on-accent: #ede6d6;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #10181c;
+          --surface: #17242b;
+          --line: #2c3e47;
+          --text: #ede6d6;
+          --muted: #9aa8ad;
+          --accent: #9cc3d3;
+          --on-accent: #10181c;
+          color-scheme: dark;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      main {
+        max-width: 520px;
+        margin: 0 auto;
+        padding: 40px 16px 56px;
+        display: grid;
+        gap: 28px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      header img {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 2rem;
+        line-height: 1.1;
+        letter-spacing: -0.01em;
+      }
+      header p {
+        margin: 2px 0 0;
+        color: var(--muted);
+      }
+      .download {
+        display: grid;
+        gap: 8px;
+      }
+      .btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        min-height: 56px;
+        border-radius: 12px;
+        background: var(--accent);
+        color: var(--on-accent);
+        font-weight: 600;
+        font-size: 1.1rem;
+        text-decoration: none;
+      }
+      .btn:focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: 3px;
+      }
+      .meta {
+        margin: 0;
+        text-align: center;
+        color: var(--muted);
+        font-size: 0.875rem;
+      }
+      section {
+        background: var(--surface);
+        border-radius: 16px;
+        padding: 20px;
+      }
+      h2 {
+        margin: 0 0 12px;
+        font-size: 1.05rem;
+      }
+      ol {
+        margin: 0;
+        padding-left: 1.3em;
+        display: grid;
+        gap: 10px;
+      }
+      li::marker {
+        color: var(--muted);
+      }
+      .note {
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      footer {
+        color: var(--muted);
+        font-size: 0.85rem;
+        text-align: center;
+      }
+      footer a {
+        color: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="icon.svg" alt="" />
+        <div>
+          <h1>Saldo</h1>
+          <p>Controle financeiro com assistente de IA</p>
+        </div>
+      </header>
+
+      <div class="download">
+        <a class="btn" href="saldo.apk" download>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14" />
+          </svg>
+          Baixar para Android
+        </a>
+        <p class="meta">Versão {{VERSAO}}, {{TAMANHO}}, publicada em {{DATA}}</p>
+      </div>
+
+      <section>
+        <h2>Como instalar</h2>
+        <ol>
+          <li>Toque em <strong>Baixar para Android</strong> pelo celular.</li>
+          <li>Abra o arquivo <strong>saldo.apk</strong> quando o download terminar.</li>
+          <li>Se o Android avisar sobre apps de fontes desconhecidas, toque em <strong>Configurações</strong> e permita instalar a partir do navegador.</li>
+          <li>Toque em <strong>Instalar</strong> e abra o Saldo.</li>
+        </ol>
+        <p class="note">Para atualizar, é só baixar de novo por este mesmo link: a versão nova instala por cima e seus dados continuam no servidor.</p>
+      </section>
+
+      <footer>
+        Código aberto em <a href="https://github.com/AlanFMF/Financeiro">github.com/AlanFMF/Financeiro</a>
+      </footer>
+    </main>
+  </body>
+</html>

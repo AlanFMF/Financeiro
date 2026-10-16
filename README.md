@@ -100,15 +100,14 @@ npm run build     # build de produção
 
 ## APK para Android
 
-O workflow `.github/workflows/android.yml` monta o APK com Capacitor a cada envio para a `main` e publica em **Releases**, sempre no mesmo endereço:
+O workflow `.github/workflows/android.yml` monta o APK com Capacitor a cada envio para a `main` e publica no GitHub Pages, junto com uma página de download:
 
-```
-https://github.com/AlanFMF/Financeiro/releases/download/apk/saldo.apk
-```
+**[alanfmf.github.io/Financeiro](https://alanfmf.github.io/Financeiro/)** (o arquivo direto fica em `alanfmf.github.io/Financeiro/saldo.apk`)
 
-1. No GitHub, em *Settings, Secrets and variables, Actions, Variables*, crie `SALDO_API_URL` com o endereço da API no Render (ex.: `https://saldo-api.onrender.com`). Sem ela, o app pede o endereço do servidor na tela de entrada.
-2. Rode o workflow (ele roda sozinho a cada push, ou em *Actions, APK Android, Run workflow*).
-3. No celular, abra o link acima, baixe `saldo.apk` e permita instalar apps dessa fonte quando o Android pedir.
+1. Na primeira vez, em *Settings, Pages*, escolha *Source: GitHub Actions*.
+2. Em *Settings, Secrets and variables, Actions, Variables*, crie `SALDO_API_URL` com o endereço da API no Render (ex.: `https://saldo-api.onrender.com`). Sem ela, o app pede o endereço do servidor na tela de entrada.
+3. O workflow roda sozinho a cada push, ou em *Actions, APK Android, Run workflow*.
+4. No celular, abra o link, toque em *Baixar para Android* e permita instalar apps dessa fonte quando o Android pedir.
 
 Todo APK sai assinado com a mesma chave de depuração (`web/android/app/saldo-debug.keystore`), então as versões novas instalam por cima da anterior. Para publicar na Play Store, gere uma chave própria e cadastre os segredos `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` e `ANDROID_KEY_PASSWORD`: o workflow passa a usá-la sozinho.
 

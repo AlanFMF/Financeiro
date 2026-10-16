@@ -1,14 +1,17 @@
 name: APK Android
 
 # Gera o APK a cada envio para a main (ou manualmente em Actions, "Run workflow")
-# e publica em Releases com um link fixo: /releases/download/apk/saldo.apk
+# e publica no GitHub Pages: alanfmf.github.io/Financeiro/saldo.apk
+# (na primeira vez, ative em Settings, Pages, Source: GitHub Actions)
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: android-apk
@@ -66,17 +69,26 @@ jobs:
           ./gradlew assembleRelease --no-daemon --stacktrace
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/saldo.apk"
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: saldo-apk
-          path: saldo.apk
-
-      - name: Publica em Releases
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Monta a página de download
         run: |
-          gh release delete apk --yes --cleanup-tag || true
-          gh release create apk saldo.apk \
-            --target "$GITHUB_SHA" \
-            --title "Saldo para Android (versão 1.${{ github.run_number }})" \
-            --notes "APK gerado automaticamente a partir do commit ${GITHUB_SHA::7}. Para instalar no Android: baixe saldo.apk pelo celular, abra o arquivo e permita instalar apps desta fonte quando o Android pedir."
+          mkdir -p site
+          cp saldo.apk site/saldo.apk
+          cp web/public/icon.svg site/icon.svg
+          TAMANHO="$(awk -v b="$(stat -c%s saldo.apk)" 'BEGIN { printf "%.1f MB", b / 1048576 }' | tr . ,)"
+          DATA="$(TZ=America/Sao_Paulo date +%d/%m/%Y)"
+          sed -e "s|{{VERSAO}}|1.${{ github.run_number }}|g" -e "s|{{TAMANHO}}|$TAMANHO|g" -e "s|{{DATA}}|$DATA|g" \
+            web/android/pages/index.html > site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  publicar:
+    needs: apk
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
