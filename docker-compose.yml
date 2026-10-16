@@ -1,0 +1,15 @@
+# Opcional: um PostgreSQL local igual ao de produção.
+# docker compose up -d  e depois  DATABASE_URL=postgres://saldo:saldo@localhost:5432/saldo npm run dev
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: saldo
+      POSTGRES_PASSWORD: saldo
+      POSTGRES_DB: saldo
+    ports:
+      - "5432:5432"
+    volumes:
+      - saldo-db:/var/lib/postgresql/data
+volumes:
+  saldo-db:

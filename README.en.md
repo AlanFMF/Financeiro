@@ -1,0 +1,57 @@
+# Saldo
+
+**[Versão em português](README.md)**
+
+A personal finance tracker that runs in the browser and installs on your phone as an app. Log income and expenses in a few taps, see the month's balance and where the money goes. The interface is in Brazilian Portuguese.
+
+It grew out of a real Google Sheets budget I use at home. Saldo imports that spreadsheet, keeps the same categories, and exports back to the same layout.
+
+> **Live demo:** `https://YOUR-APP.vercel.app` (click *Abrir a demonstração* for a temporary account with four months of fictitious data).
+
+<p>
+  <img src="docs/mobile-mes.png" width="240" alt="Month view on mobile">
+  <img src="docs/mobile-lancamento.png" width="240" alt="New entry form">
+  <img src="docs/mobile-escuro.png" width="240" alt="Month view in dark mode">
+</p>
+
+## Features
+
+- Monthly balance front and centre, with a bar showing how much of the income has already been spent and a comparison with last month.
+- Fast mobile entry: numeric keypad, category chips, pre-filled date, and a home-screen shortcut straight to the form.
+- Recurring items and installments: copy fixed entries to the next month in one tap; `Loan (10/48)` becomes `(11/48)` automatically and the final installment is not copied again.
+- Spending by category, six-month history, search and filters.
+- CSV import with preview, per-line validation, automatic category creation and duplicate detection; CSV export in the spreadsheet format.
+- Installable PWA, offline app shell, automatic dark mode, mobile-first layout.
+- Public demo with no real data: each visitor gets a throwaway account deleted after 24 hours.
+
+## Stack
+
+- **API:** Node.js 22, TypeScript, Fastify 5, Zod, JWT, bcrypt, rate limiting.
+- **Database:** PostgreSQL 16 with hand-written SQL and versioned migrations. Local development and tests run on PGlite (Postgres compiled to WASM), so nothing needs installing.
+- **Frontend:** React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa.
+- **Quality:** Vitest (31 tests), GitHub Actions against a real PostgreSQL 16.
+- **Hosting:** Vercel (frontend), Render (API), Neon (database), all on free tiers.
+
+## Design decisions
+
+- Money is stored as integer cents, never floats.
+- Reports are plain SQL (`sum ... filter`, `generate_series`, `date_trunc`) rather than an ORM.
+- A small `Db` interface lets the same code run on PostgreSQL or PGlite.
+- Every query is scoped by `user_id`, with tests proving one user cannot read, delete or reuse another user's data.
+- Import is idempotent and previewed before anything is written.
+
+## Running locally
+
+```bash
+git clone https://github.com/AlanFMF/saldo.git
+cd saldo
+npm install
+npm run dev   # web on :5173, API on :3333 with an embedded PGlite database
+npm test
+```
+
+Deployment steps (Neon, Render blueprint in `render.yaml`, Vercel with root `web` and `VITE_API_URL`) are described in the [Portuguese README](README.md#publicando-de-graça).
+
+## License
+
+MIT. Built by [Alan Fabrício de Morais Filho](https://www.linkedin.com/in/alanfmf).
