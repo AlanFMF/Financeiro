@@ -21,7 +21,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 
 ## O que ele faz
 
-- **Assistente com IA no canto da tela**: escreva ou fale "gastei 45,90 no mercado e 120 de gasolina ontem" e ele lança os dois na categoria certa, com a data certa. Cada lançamento aparece no chat com **Editar** e **Desfazer**. Também responde perguntas como "quanto gastei com alimentação este mês?".
+- **Assistente com IA no canto da tela**: escreva ou fale "gastei 45,90 no mercado e 120 de gasolina ontem" e ele lança os dois na categoria certa, com a data certa. Cada lançamento aparece no chat com **Editar** e **Desfazer**. Entende frases como "mercado deu 230, mas 40 foi ração" (separa em dois), "tênis de 600 em 6x no cartão" (lança a parcela 1/6), "jantar de 120 dividido por 3", e correções como "na verdade a gasolina foi 160" ou "apaga o do uber". Também responde perguntas como "quanto gastei com alimentação este mês?".
 - **Saldo do mês em destaque**, com uma régua que mostra quanto do que entrou já saiu e a comparação com o mês anterior.
 - **Lançamento rápido pelo celular**: teclado numérico, categorias em botões, data já preenchida. O atalho do ícone instalado abre direto o formulário.
 - **Gastos fixos e parcelas**: marque um lançamento como fixo e copie todos para o mês seguinte com um toque. Descrições como `Financiamento (10/48)` avançam sozinhas para `(11/48)`, e a parcela final não é copiada.
@@ -39,7 +39,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | Banco | PostgreSQL 16 com SQL puro e migrações versionadas. Em desenvolvimento e nos testes roda em [PGlite](https://pglite.dev) (Postgres em WASM), sem instalar nada |
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
 | IA | API da Claude (Claude Haiku 5.5) com tool use: o modelo chama ferramentas da própria API para gravar, consultar e resumir |
-| Qualidade | Vitest (45 testes de API, regras e assistente com modelo simulado), GitHub Actions com PostgreSQL 16 real |
+| Qualidade | Vitest (72 testes de API, interpretador de frases e assistente com modelo simulado), GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
@@ -48,8 +48,9 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **SQL escrito à mão em vez de ORM.** Os relatórios usam `sum(...) filter (where ...)`, `generate_series` para meses sem lançamento e `date_trunc`. Fica legível e mostra o que o banco está fazendo.
 - **Uma interface `Db`, dois motores.** A mesma API roda em PostgreSQL (produção) ou PGlite (local e testes). Quem clona o repositório roda `npm run dev` e já tem um Postgres funcionando.
 - **Isolamento por usuário em toda consulta.** Todo `select`, `update` e `delete` filtra por `user_id`, e há teste garantindo que um usuário não lê nem apaga dado de outro, nem usa a categoria de outro.
-- **A IA não toca no banco.** O modelo só pode chamar três ferramentas (`registrar_lancamentos`, `consultar_lancamentos`, `resumo_do_mes`). Quem valida valor, data e categoria e escreve no PostgreSQL é o código da API, sempre com o `user_id` de quem está logado. Ele recebe no prompt a data de hoje e as categorias do usuário, e o laço de ferramentas tem limite de rodadas.
-- **Funciona sem chave.** Sem `ANTHROPIC_API_KEY`, o assistente cai num modo simples por regras que entende frases como "paguei 150 de condomínio e 89,90 de internet". O app nunca fica sem chat.
+- **A IA não toca no banco.** O modelo só pode chamar cinco ferramentas (`registrar_lancamentos`, `corrigir_lancamento`, `excluir_lancamento`, `consultar_lancamentos`, `resumo_do_mes`). Quem valida valor, data e categoria e escreve no PostgreSQL é o código da API, sempre com o `user_id` de quem está logado. Ele recebe no prompt a data de hoje e as categorias do usuário, e o laço de ferramentas tem limite de rodadas.
+- **A IA conhece o usuário.** O prompt leva os hábitos de categoria dele (a "Padaria do Zé" que ele sempre lança em Lazer), os últimos lançamentos com id (para corrigir e apagar o certo) e um calendário dos últimos dez dias, para "sexta passada" nunca virar a data errada.
+- **Funciona sem chave.** Sem `ANTHROPIC_API_KEY`, o assistente cai num modo simples por regras que entende valores por extenso ("cinquenta reais e noventa centavos", "mil e duzentos", "2k"), datas relativas ("sexta passada", "dia 10", "12/09"), parcelamentos, vários itens numa frase e "apaga o último", e também aprende com o histórico de categorias. O app nunca fica sem chat.
 - **Custo sob controle.** Limite por hora para contas normais, limite por conta de demonstração e um teto diário para a demo pública, tudo configurável por variável de ambiente.
 - **Importação idempotente com prévia.** O CSV é validado linha a linha antes de gravar, e lançamentos idênticos são pulados. Dá para importar o mesmo mês duas vezes sem bagunçar nada.
 

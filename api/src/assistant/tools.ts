@@ -28,6 +28,8 @@ export interface ToolContext {
   categories: CategoryRow[];
   today: string;
   created: CreatedTransaction[];
+  updated: CreatedTransaction[];
+  deleted: CreatedTransaction[];
 }
 
 export const TOOLS: Anthropic.Tool[] = [
@@ -55,6 +57,34 @@ export const TOOLS: Anthropic.Tool[] = [
         }
       },
       required: ['itens']
+    }
+  },
+  {
+    name: 'corrigir_lancamento',
+    description:
+      'Corrige um lançamento já gravado quando o usuário pedir ("na verdade foi 50", "era Lazer, não Compras", "foi ontem"). Use o id da lista de lançamentos recentes ou de consultar_lancamentos. Envie só os campos que mudam.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Id do lançamento' },
+        tipo: { type: 'string', enum: ['saida', 'entrada'] },
+        categoria: { type: 'string' },
+        valor: { type: 'number', description: 'Novo valor em reais' },
+        data: { type: 'string', description: 'AAAA-MM-DD' },
+        descricao: { type: 'string' },
+        fixo: { type: 'boolean' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'excluir_lancamento',
+    description:
+      'Apaga um lançamento só quando o usuário pedir claramente ("apaga o do uber", "esse eu lancei errado, tira"). Nunca apague por iniciativa própria nem vários de uma vez sem o usuário listar quais.',
+    input_schema: {
+      type: 'object',
+      properties: { id: { type: 'number', description: 'Id do lançamento' } },
+      required: ['id']
     }
   },
   {
@@ -87,6 +117,7 @@ const reais = (cents: number) =>
 export function findCategory(categories: CategoryRow[], name: string, kind: 'entrada' | 'saida') {
   const n = normalize(name);
   const sameKind = categories.filter((c) => c.kind === kind);
+  if (!n) return sameKind.find((c) => normalize(c.name) === (kind === 'entrada' ? 'outras receitas' : 'imprevistos/outros')) ?? sameKind[0];
   return (
     sameKind.find((c) => normalize(c.name) === n) ??
     sameKind.find((c) => normalize(c.name).includes(n) || n.includes(normalize(c.name))) ??
@@ -143,6 +174,56 @@ export async function runTool(name: string, input: Input, ctx: ToolContext): Pro
     return { content: results.join('\n') };
   }
 
+  if (name === 'corrigir_lancamento' || name === 'excluir_lancamento') {
+    const id = Number(input.id);
+    const current = Number.isInteger(id)
+      ? (await ctx.db.query<CreatedTransaction>(`${TX_SELECT} where t.id = $1 and t.user_id = $2`, [id, ctx.userId])).rows[0]
+      : undefined;
+    if (!current) return { content: `Lançamento #${input.id} não encontrado. Use consultar_lancamentos para achar o id.`, isError: true };
+
+    if (name === 'excluir_lancamento') {
+      await ctx.db.query('delete from transactions where id = $1 and user_id = $2', [id, ctx.userId]);
+      ctx.deleted.push(current);
+      ctx.created = ctx.created.filter((t) => t.id !== id);
+      return { content: `Excluído #${id}: ${current.kind} ${reais(current.amountCents)} em ${current.categoryName}, "${current.description}", ${current.date}` };
+    }
+
+    const kind = input.tipo === 'entrada' || input.tipo === 'saida' ? input.tipo : current.kind;
+    let categoryId = current.categoryId;
+    if (typeof input.categoria === 'string' && input.categoria) {
+      const cat = findCategory(ctx.categories, input.categoria, kind);
+      if (cat) categoryId = cat.id;
+    } else if (kind !== current.kind) {
+      const cat = findCategory(ctx.categories, '', kind);
+      if (cat) categoryId = cat.id;
+    }
+    let amountCents = current.amountCents;
+    if (input.valor !== undefined) {
+      amountCents = Math.round(Number(input.valor) * 100);
+      if (!Number.isFinite(amountCents) || amountCents <= 0 || amountCents > 1_000_000_000) {
+        return { content: `Valor inválido (${input.valor}).`, isError: true };
+      }
+    }
+    const date = input.data !== undefined ? (isDate(input.data) ? input.data : null) : current.date;
+    if (!date) return { content: `Data inválida (${input.data}). Use AAAA-MM-DD.`, isError: true };
+    const description = typeof input.descricao === 'string' ? input.descricao.trim().slice(0, 120) : current.description;
+    const isFixed = typeof input.fixo === 'boolean' ? input.fixo : current.isFixed;
+
+    await ctx.db.query(
+      `update transactions set category_id = $3, date = $4, description = $5, amount_cents = $6, is_fixed = $7, updated_at = now()
+       where id = $1 and user_id = $2`,
+      [id, ctx.userId, categoryId, date, description, amountCents, isFixed]
+    );
+    const tx = (await ctx.db.query<CreatedTransaction>(`${TX_SELECT} where t.id = $1`, [id])).rows[0];
+    // Se foi criado nesta mesma conversa, atualiza o cartão em vez de mostrar dois.
+    const createdIdx = ctx.created.findIndex((t) => t.id === id);
+    if (createdIdx >= 0) ctx.created[createdIdx] = tx;
+    else ctx.updated = [...ctx.updated.filter((t) => t.id !== id), tx];
+    return {
+      content: `Corrigido #${id}: agora ${tx.kind} ${reais(tx.amountCents)} em ${tx.categoryName}, "${tx.description}", ${tx.date}`
+    };
+  }
+
   if (name === 'consultar_lancamentos') {
     const params: unknown[] = [ctx.userId];
     const where = ['t.user_id = $1'];
@@ -168,7 +249,7 @@ export async function runTool(name: string, input: Input, ctx: ToolContext): Pro
     const total = rows.reduce((s, r) => s + (r.kind === 'entrada' ? r.amountCents : -r.amountCents), 0);
     return {
       content:
-        rows.map((r) => `${r.date} | ${r.kind} | ${r.categoryName} | ${r.description} | ${reais(r.amountCents)}`).join('\n') +
+        rows.map((r) => `#${r.id} | ${r.date} | ${r.kind} | ${r.categoryName} | ${r.description} | ${reais(r.amountCents)}`).join('\n') +
         `\n${rows.length} itens (limite ${limit}). Resultado líquido: ${reais(total)}`
     };
   }

@@ -3,8 +3,35 @@ import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { HttpError } from '../server.js';
 import { buildSystemPrompt } from './prompt.js';
-import { parseByRules } from './rules.js';
+import { isDeleteLastCommand, parseByRules, type HistoryHint } from './rules.js';
 import { TOOLS, insertTransaction, runTool, type CategoryRow, type CreatedTransaction, type ToolContext } from './tools.js';
+import { TX_SELECT } from '../routes/transactions.js';
+import type { Db } from '../db.js';
+
+/** Para cada descrição, a categoria que o usuário mais usou com ela. */
+async function loadHabits(db: Db, userId: number): Promise<HistoryHint[]> {
+  const { rows } = await db.query<{ description: string; category: string; kind: 'entrada' | 'saida' }>(
+    `select distinct on (lower(t.description)) t.description, c.name as category, c.kind
+     from (
+       select category_id, description, count(*) as n, max(date) as last
+       from transactions
+       where user_id = $1 and description <> ''
+       group by category_id, description
+     ) t join categories c on c.id = t.category_id
+     order by lower(t.description), t.n desc, t.last desc`,
+    [userId]
+  );
+  // Mais frequentes primeiro, para o prompt levar os hábitos mais úteis.
+  const freq = await db.query<{ d: string; n: string | number }>(
+    `select lower(description) as d, count(*) as n from transactions where user_id = $1 and description <> '' group by 1`,
+    [userId]
+  );
+  const count = new Map(freq.rows.map((r) => [r.d, Number(r.n)]));
+  return rows
+    .map((r) => ({ ...r, description: r.description.replace(/\s*\(\d+\/\d+\)\s*$/, '') }))
+    .sort((a, b) => (count.get(b.description.toLowerCase()) ?? 0) - (count.get(a.description.toLowerCase()) ?? 0))
+    .slice(0, 300);
+}
 
 /** Função que chama o modelo. Em produção é a API da Claude; nos testes, um modelo falso. */
 export type Llm = (params: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>;
@@ -91,15 +118,20 @@ export const assistantRoutes: FastifyPluginAsync<AssistantOptions> = async (app,
       await app.db.query<CategoryRow>('select id, name, kind from categories where user_id = $1 and not archived order by kind, position', [userId])
     ).rows;
     const today = resolveToday(body.today);
-    const ctx: ToolContext = { db: app.db, userId, categories, today, created: [] };
+    const ctx: ToolContext = { db: app.db, userId, categories, today, created: [], updated: [], deleted: [] };
+    const habits = await loadHabits(app.db, userId);
 
-    if (!opts.llm) return simpleMode(ctx, last.content);
+    if (!opts.llm) return simpleMode(ctx, last.content, habits);
+
+    const recent = (
+      await app.db.query<CreatedTransaction>(`${TX_SELECT} where t.user_id = $1 order by t.created_at desc, t.id desc limit 12`, [userId])
+    ).rows;
 
     // Histórico: começa sempre numa mensagem do usuário e guarda só as últimas trocas.
     let history = body.messages.slice(-16);
     while (history[0]?.role !== 'user') history = history.slice(1);
     const messages: Anthropic.MessageParam[] = history.map((m) => ({ role: m.role, content: m.content }));
-    const system = buildSystemPrompt(categories, today);
+    const system = buildSystemPrompt({ categories, today, history: habits, recent });
 
     let reply = '';
     try {
@@ -125,9 +157,9 @@ export const assistantRoutes: FastifyPluginAsync<AssistantOptions> = async (app,
       }
     } catch (err) {
       req.log.error(err, 'falha na API da Claude');
-      if (ctx.created.length) {
+      if (ctx.created.length || ctx.updated.length || ctx.deleted.length) {
         // O que já foi gravado continua valendo; só a frase final não veio.
-        return { reply: 'Lancei os itens abaixo, mas a IA parou de responder antes de terminar.', transactions: ctx.created, mode: 'ia' };
+        return { reply: 'Fiz as mudanças abaixo, mas a IA parou de responder antes de terminar.', ...changes(ctx), mode: 'ia' };
       }
       const status = err instanceof Anthropic.APIError ? err.status : undefined;
       if (status === 401 || status === 403) throw new HttpError(502, 'A chave da API da Claude foi recusada. Confira ANTHROPIC_API_KEY no servidor.');
@@ -135,26 +167,39 @@ export const assistantRoutes: FastifyPluginAsync<AssistantOptions> = async (app,
       throw new HttpError(502, 'A IA não respondeu. Tente de novo ou use o botão + para lançar.');
     }
 
-    if (!reply) reply = ctx.created.length ? 'Pronto, lançado.' : 'Não consegui entender. Pode dizer o valor e o que foi?';
-    return { reply, transactions: ctx.created, mode: 'ia' };
+    if (!reply) reply = ctx.created.length || ctx.updated.length || ctx.deleted.length ? 'Pronto.' : 'Não consegui entender. Pode dizer o valor e o que foi?';
+    return { reply, ...changes(ctx), mode: 'ia' };
   });
 };
 
-async function simpleMode(ctx: ToolContext, message: string) {
-  const items = parseByRules(message, ctx.today);
+const changes = (ctx: ToolContext) => ({ transactions: ctx.created, updated: ctx.updated, deleted: ctx.deleted });
+
+async function simpleMode(ctx: ToolContext, message: string, habits: HistoryHint[]) {
+  if (isDeleteLastCommand(message)) {
+    const last = (
+      await ctx.db.query<CreatedTransaction>(`${TX_SELECT} where t.user_id = $1 order by t.created_at desc, t.id desc limit 1`, [ctx.userId])
+    ).rows[0];
+    if (!last) return { reply: 'Você ainda não tem lançamentos.', ...changes(ctx), mode: 'simples' };
+    await ctx.db.query('delete from transactions where id = $1 and user_id = $2', [last.id, ctx.userId]);
+    ctx.deleted.push(last);
+    return { reply: `Apaguei o último lançamento: ${last.description || last.categoryName}.`, ...changes(ctx), mode: 'simples' };
+  }
+
+  const items = parseByRules(message, ctx.today, habits);
   if (!items.length) {
     return {
-      reply: 'No modo simples eu entendo frases como "gastei 45,90 no mercado" ou "recebi 4200 de salário". Com a chave da IA configurada, entendo qualquer jeito de falar.',
-      transactions: [] as CreatedTransaction[],
+      reply:
+        'Não achei um valor nessa frase. Tente algo como "gastei 45,90 no mercado ontem" ou "recebi 4.200 de salário". Para corrigir ou fazer perguntas, ligue a IA com a chave da API.',
+      ...changes(ctx),
       mode: 'simples'
     };
   }
-  for (const it of items) await insertTransaction(ctx, { ...it, isFixed: false });
+  for (const it of items) await insertTransaction(ctx, it);
   const fmt = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const parts = ctx.created.map((t) => `${fmt(t.amountCents)} em ${t.categoryName}`);
   return {
     reply: `Lancei ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} e ${parts.at(-1)}` : parts[0]}.`,
-    transactions: ctx.created,
+    ...changes(ctx),
     mode: 'simples'
   };
 }

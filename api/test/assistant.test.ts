@@ -75,9 +75,16 @@ describe('assistente com IA', () => {
   it('manda ao modelo a data de hoje, as categorias do usuário e as ferramentas', () => {
     const first = fake.calls[0];
     expect(first.model).toBe('claude-haiku-5-5');
-    expect(first.system).toContain('2026-10-16');
+    expect(first.system).toContain('2026-10-16 (sexta, hoje)');
+    expect(first.system).toContain('2026-10-09 (sexta)');
     expect(first.system).toContain('- Moradia (aluguel, condomínio, energia/luz');
-    expect(first.tools?.map((t) => (t as Anthropic.Tool).name)).toEqual(['registrar_lancamentos', 'consultar_lancamentos', 'resumo_do_mes']);
+    expect(first.tools?.map((t) => (t as Anthropic.Tool).name)).toEqual([
+      'registrar_lancamentos',
+      'corrigir_lancamento',
+      'excluir_lancamento',
+      'consultar_lancamentos',
+      'resumo_do_mes'
+    ]);
   });
 
   it('os lançamentos aparecem na lista normal do app', async () => {

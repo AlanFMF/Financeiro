@@ -1287,6 +1287,19 @@ td {
   display: flex;
   gap: 16px;
 }
+.chat-tx-actions .tag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 2px 8px;
+  align-self: center;
+  text-decoration: none;
+}
+.chat-txs li[data-undone='true'] .tag {
+  text-decoration: none;
+}
 .chat-tx-actions .link-btn {
   font-size: 0.85rem;
   padding: 2px 0;

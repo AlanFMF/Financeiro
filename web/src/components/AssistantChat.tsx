@@ -11,17 +11,26 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   transactions?: Transaction[];
+  updated?: Transaction[];
+  deleted?: Transaction[];
   error?: boolean;
 }
 
 interface ChatResponse {
   reply: string;
   transactions: Transaction[];
+  updated?: Transaction[];
+  deleted?: Transaction[];
   mode: 'ia' | 'simples';
 }
 
 const STORAGE_KEY = 'saldo.chat';
-const SUGGESTIONS = ['Gastei 45,90 no mercado', 'Paguei 150 de condomínio e 300 de luz', 'Quanto gastei com alimentação este mês?'];
+const SUGGESTIONS_IA = [
+  'Mercado deu 230, mas 40 foi ração',
+  'Comprei um tênis de 600 em 6x no cartão',
+  'Quanto gastei com alimentação este mês?'
+];
+const SUGGESTIONS_SIMPLE = ['Gastei 45,90 no mercado ontem', 'Paguei 150 de condomínio e 300 de luz', 'Comprei um tênis de 600 em 6x'];
 
 function loadHistory(): ChatMessage[] {
   try {
@@ -102,8 +111,13 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
     try {
       const history = next.filter((m) => !m.error).map((m) => ({ role: m.role, content: m.content }));
       const r = await api.post<ChatResponse>('/assistant/chat', { messages: history, today: todayIso() });
-      setMessages((m) => [...m, { id: Date.now() + 1, role: 'assistant', content: r.reply, transactions: r.transactions }]);
-      if (r.transactions.length) await invalidate();
+      setMessages((m) => [
+        ...m,
+        { id: Date.now() + 1, role: 'assistant', content: r.reply, transactions: r.transactions, updated: r.updated, deleted: r.deleted }
+      ]);
+      // Item apagado agora aparece riscado também no cartão da mensagem em que foi criado.
+      if (r.deleted?.length) setUndone((s) => new Set([...s, ...r.deleted!.map((t) => t.id)]));
+      if (r.transactions.length || r.updated?.length || r.deleted?.length) await invalidate();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Não consegui falar com o servidor.';
       setMessages((m) => [...m, { id: Date.now() + 1, role: 'assistant', content: msg, error: true }]);
@@ -169,7 +183,7 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
         <header className="chat-head">
           <div>
             <h2 id="chat-title">Assistente</h2>
-            <p>{simple ? 'Modo simples: use frases curtas com o valor' : 'Conte o que gastou ou recebeu'}</p>
+            <p>{simple ? 'Modo simples: diga o valor e o que foi' : 'Conte o que gastou ou recebeu, ou peça uma correção'}</p>
           </div>
           {messages.length > 0 && (
             <button className="link-btn" onClick={() => setMessages([])}>
@@ -188,7 +202,7 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
                 Escreva do seu jeito, como numa conversa. Eu coloco cada valor na categoria certa e você pode desfazer na hora.
               </p>
               <div className="chat-suggestions">
-                {SUGGESTIONS.map((s) => (
+                {(simple ? SUGGESTIONS_SIMPLE : SUGGESTIONS_IA).map((s) => (
                   <button key={s} className="chip" onClick={() => send(s)}>
                     {s}
                   </button>
@@ -201,9 +215,26 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
             <div key={m.id} className={`bubble-row ${m.role}`}>
               <div className={`bubble ${m.role}${m.error ? ' error' : ''}`}>
                 <p>{m.content}</p>
-                {m.transactions && m.transactions.length > 0 && (
+                {[...(m.transactions ?? []), ...(m.updated ?? []), ...(m.deleted ?? [])].length > 0 && (
                   <ul className="chat-txs">
-                    {m.transactions.map((t) => {
+                    {m.deleted?.map((t) => (
+                      <li key={`del-${t.id}`} data-undone="true">
+                        <i className="dot" style={{ background: t.color }} aria-hidden="true" />
+                        <span className="chat-tx-main">
+                          <span className="tx-desc">{t.description || t.categoryName}</span>
+                          <span className="tx-cat">
+                            {t.categoryName}, {dayLabel(t.date)}
+                          </span>
+                        </span>
+                        <span className={`tx-value tnum ${t.kind}`}>
+                          {t.kind === 'entrada' ? '+' : '−'} {money(t.amountCents)}
+                        </span>
+                        <span className="chat-tx-actions">
+                          <span className="tag">Excluído</span>
+                        </span>
+                      </li>
+                    ))}
+                    {[...(m.updated ?? []).map((t) => ({ t, changed: true })), ...(m.transactions ?? []).map((t) => ({ t, changed: false }))].map(({ t, changed }) => {
                       const isUndone = undone.has(t.id);
                       return (
                         <li key={t.id} data-undone={isUndone}>
@@ -218,15 +249,16 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
                             {t.kind === 'entrada' ? '+' : '−'} {money(t.amountCents)}
                           </span>
                           <span className="chat-tx-actions">
+                            {changed && !isUndone && <span className="tag">Corrigido</span>}
                             {isUndone ? (
-                              <span className="muted">Desfeito</span>
+                              <span className="muted">{changed ? 'Excluído' : 'Desfeito'}</span>
                             ) : (
                               <>
                                 <button className="link-btn" onClick={() => editor.open(t)}>
                                   Editar
                                 </button>
                                 <button className="link-btn danger-text" onClick={() => undo(t)}>
-                                  Desfazer
+                                  {changed ? 'Excluir' : 'Desfazer'}
                                 </button>
                               </>
                             )}
