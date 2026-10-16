@@ -83,6 +83,14 @@
         font-size: 1.1rem;
         text-decoration: none;
       }
+      .btn.secondary {
+        margin-top: 12px;
+        background: transparent;
+        color: var(--text);
+        border: 1.5px solid var(--line);
+        font-size: 1rem;
+        min-height: 50px;
+      }
       .btn:focus-visible {
         outline: 3px solid var(--accent);
         outline-offset: 3px;
@@ -144,6 +152,8 @@
           Baixar para Android
         </a>
         <p class="meta">Versão {{VERSAO}}, {{TAMANHO}}, publicada em {{DATA}}</p>
+        <a class="btn secondary" href="app/">Usar no navegador</a>
+        <p class="meta">No computador ou no iPhone, use pelo navegador. Dá para instalar como app pelo menu do navegador.</p>
       </div>
 
       <section>

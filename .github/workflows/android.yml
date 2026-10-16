@@ -1,7 +1,8 @@
 name: APK Android
 
-# Gera o APK a cada envio para a main (ou manualmente em Actions, "Run workflow")
-# e publica no GitHub Pages: alanfmf.github.io/Financeiro/saldo.apk
+# Gera o APK e a versão web a cada envio para a main (ou manualmente em Actions, "Run workflow")
+# e publica no GitHub Pages: página de download em alanfmf.github.io/Financeiro,
+# APK em /Financeiro/saldo.apk e o app web em /Financeiro/app/
 # (na primeira vez, ative em Settings, Pages, Source: GitHub Actions)
 on:
   push:
@@ -69,9 +70,20 @@ jobs:
           ./gradlew assembleRelease --no-daemon --stacktrace
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/saldo.apk"
 
-      - name: Monta a página de download
+      - name: Build da versão web para o GitHub Pages
+        working-directory: web
+        env:
+          VITE_API_URL: ${{ vars.SALDO_API_URL || 'https://saldo-api-g1ae.onrender.com' }}
+          VITE_BASE: /${{ github.event.repository.name }}/app/
+        run: npx vite build --outDir dist-pages
+
+      - name: Monta o site (download, APK e app web)
         run: |
           mkdir -p site
+          cp -r web/dist-pages site/app
+          # O GitHub Pages não conhece as rotas do app: qualquer endereço desconhecido abre o app,
+          # que então mostra a tela certa (ex.: /Financeiro/app/lancamentos).
+          cp web/dist-pages/index.html site/404.html
           cp saldo.apk site/saldo.apk
           cp web/public/icon.svg site/icon.svg
           TAMANHO="$(awk -v b="$(stat -c%s saldo.apk)" 'BEGIN { printf "%.1f MB", b / 1048576 }' | tr . ,)"

@@ -6,7 +6,7 @@ A personal finance tracker that runs in the browser and installs on your phone a
 
 It grew out of a real Google Sheets budget I use at home. Saldo imports that spreadsheet, keeps the same categories, and exports back to the same layout.
 
-> **Live demo:** `https://YOUR-APP.vercel.app` (click *Abrir a demonstração* for a temporary account with four months of fictitious data).
+> **Try it:** [alanfmf.github.io/Financeiro/app](https://alanfmf.github.io/Financeiro/app/) in the browser, or get the Android APK at [alanfmf.github.io/Financeiro](https://alanfmf.github.io/Financeiro/). Click *Abrir a demonstração* for a temporary account with four months of fictitious data.
 
 <p>
   <img src="docs/mobile-mes.png" width="240" alt="Month view on mobile">

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { api, ApiError, isNativeApp, serverStore, type User } from '../api';
 import { useAuth } from '../auth';
+import { useSlow, WAKING_MESSAGE } from '../useSlow';
 
 type Mode = 'entrar' | 'criar';
 
@@ -13,6 +14,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const slow = useSlow(busy);
   const [server, setServer] = useState(serverStore.get());
   const [editServer, setEditServer] = useState(isNativeApp && !serverStore.get());
 
@@ -50,7 +52,7 @@ export function LoginPage() {
   return (
     <div className="login">
       <section className="login-intro">
-        <img src="/icon.svg" alt="" width={56} height={56} />
+        <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" width={56} height={56} />
         <h1>Saldo</h1>
         <p>Entradas, saídas e o que sobra no mês. Lance pelo celular em segundos e veja para onde o dinheiro está indo.</p>
         <div className="login-sample" aria-hidden="true">
@@ -111,6 +113,11 @@ export function LoginPage() {
           {error && !Object.keys(fieldErrors).length && (
             <p className="form-error" role="alert">
               {error}
+            </p>
+          )}
+          {slow && (
+            <p className="muted" role="status">
+              {WAKING_MESSAGE}
             </p>
           )}
           <button className="btn primary block" disabled={busy}>

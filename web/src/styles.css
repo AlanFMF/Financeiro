@@ -114,6 +114,21 @@ a {
 /* ---------- estrutura ---------- */
 .boot {
   min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+}
+.boot img {
+  border-radius: 14px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.boot p {
+  max-width: 34ch;
+  color: var(--muted);
+  font-size: 0.95rem;
 }
 .shell {
   min-height: 100dvh;

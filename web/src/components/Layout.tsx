@@ -50,7 +50,7 @@ export function Layout() {
       <div className="shell" data-chat={chatOpen}>
         <aside className="sidebar">
           <div className="brand">
-            <img src="/icon.svg" alt="" width={32} height={32} />
+            <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" width={32} height={32} />
             <span>Saldo</span>
           </div>
           <nav aria-label="Principal">
