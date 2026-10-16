@@ -39,4 +39,6 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Vibração curta ao começar, travar e cancelar a gravação de voz -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 </manifest>

@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api, ApiError, type Transaction } from '../api';
 import { dayLabel, money, todayIso } from '../format';
 import { useInvalidate } from '../queries';
-import { IconChat, IconClose, IconMic, IconSend } from './Icons';
+import { IconChat, IconChevronUp, IconClose, IconLock, IconMic, IconSend, IconTrash } from './Icons';
+import { CANCEL_DISTANCE, LOCK_DISTANCE, formatElapsed, useVoiceRecorder } from '../useVoiceRecorder';
 import { useEditor } from './Layout';
 
 interface ChatMessage {
@@ -42,31 +43,13 @@ function loadHistory(): ChatMessage[] {
   }
 }
 
-type Recognition = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  start: () => void;
-  stop: () => void;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
-};
-const SpeechRecognitionCtor: (new () => Recognition) | undefined =
-  typeof window !== 'undefined'
-    ? ((window as unknown as Record<string, unknown>).SpeechRecognition as never) ??
-      ((window as unknown as Record<string, unknown>).webkitSpeechRecognition as never)
-    : undefined;
-
 export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>(loadHistory);
   const [input, setInput] = useState('');
   const [pending, setPending] = useState(false);
-  const [listening, setListening] = useState(false);
   const [undone, setUndone] = useState<Set<number>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const recognition = useRef<Recognition | null>(null);
   const invalidate = useInvalidate();
   const editor = useEditor();
   const navigate = useNavigate();
@@ -92,7 +75,6 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 50);
-    else recognition.current?.stop();
   }, [open]);
 
   useEffect(() => {
@@ -105,7 +87,6 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
   async function send(text: string) {
     const content = text.trim();
     if (!content || pending) return;
-    recognition.current?.stop();
     const userMsg: ChatMessage = { id: Date.now(), role: 'user', content };
     const next = [...messages, userMsg];
     setMessages(next);
@@ -139,26 +120,13 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
     }
   }
 
-  function toggleMic() {
-    if (!SpeechRecognitionCtor) return;
-    if (listening) return recognition.current?.stop();
-    const rec = new SpeechRecognitionCtor();
-    rec.lang = 'pt-BR';
-    rec.interimResults = true;
-    rec.continuous = false;
-    const base = input ? `${input.trim()} ` : '';
-    rec.onresult = (e) => {
-      const transcript = Array.from(e.results)
-        .map((r) => r[0].transcript)
-        .join('');
-      setInput(base + transcript);
-    };
-    rec.onend = () => setListening(false);
-    rec.onerror = () => setListening(false);
-    recognition.current = rec;
-    setListening(true);
-    rec.start();
-  }
+  const voice = useVoiceRecorder({
+    // Com uma resposta ainda chegando, o texto ditado vai para a caixa em vez de se perder.
+    onSend: (text) => (pending ? setInput(text) : send(text)),
+    onNotice: (text) => editor.toast(text)
+  });
+  const recording = voice.mode !== 'idle';
+  const showMic = voice.available && (recording || !input.trim());
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -303,35 +271,82 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
           )}
         </div>
 
-        <form className="chat-compose" onSubmit={submit}>
-          <label className="sr-only" htmlFor="chat-input">
-            Mensagem
-          </label>
-          <textarea
-            id="chat-input"
-            ref={inputRef}
-            rows={1}
-            value={input}
-            maxLength={2000}
-            placeholder={listening ? 'Ouvindo…' : 'Ex.: gastei 120 de gasolina ontem'}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-          />
-          {SpeechRecognitionCtor && (
-            <button
-              type="button"
-              className="icon-btn mic"
-              data-listening={listening}
-              aria-pressed={listening}
-              aria-label={listening ? 'Parar de ouvir' : 'Falar'}
-              onClick={toggleMic}
-            >
-              <IconMic />
+        <form className="chat-compose" data-voice={voice.mode} onSubmit={submit}>
+          {voice.mode === 'locked' && (
+            <button key="trash" type="button" className="icon-btn rec-trash" aria-label="Descartar gravação" onClick={voice.cancel}>
+              <IconTrash />
             </button>
           )}
-          <button type="submit" className="send-btn" aria-label="Enviar" disabled={!input.trim() || pending}>
-            <IconSend />
-          </button>
+
+          {recording ? (
+            <div key="strip" className="rec-strip" role="status" aria-live="polite">
+              <span className="rec-dot" aria-hidden="true" />
+              <span className="rec-time tnum">{formatElapsed(voice.elapsed)}</span>
+              <span className="rec-text">{voice.text ? (voice.text.length > 90 ? `…${voice.text.slice(-90)}` : voice.text) : 'Ouvindo…'}</span>
+              {voice.mode === 'holding' && (
+                <span
+                  className="rec-cancel-hint"
+                  style={{ opacity: 1 - Math.min(1, Math.abs(voice.drag.x) / CANCEL_DISTANCE), transform: `translateX(${voice.drag.x * 0.5}px)` }}
+                >
+                  ‹ Deslize para cancelar
+                </span>
+              )}
+            </div>
+          ) : (
+            <>
+              <label key="label" className="sr-only" htmlFor="chat-input">
+                Mensagem
+              </label>
+              <textarea
+                key="input"
+                id="chat-input"
+                ref={inputRef}
+                rows={1}
+                value={input}
+                maxLength={2000}
+                placeholder={voice.available ? 'Escreva ou segure o microfone' : 'Ex.: gastei 120 de gasolina ontem'}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+              />
+            </>
+          )}
+
+          {/* O mesmo botão do começo ao fim do gesto: trocar o elemento faria o navegador perder o dedo. */}
+          {showMic && voice.mode !== 'locked' && (
+            <div key="mic" className="mic-wrap" data-mode={voice.mode}>
+              {voice.mode === 'holding' && (
+                <span
+                  className="lock-pill"
+                  aria-hidden="true"
+                  style={{ transform: `translateY(${Math.max(-LOCK_DISTANCE, voice.drag.y) * 0.6}px)` }}
+                >
+                  <IconLock />
+                  <IconChevronUp />
+                </span>
+              )}
+              <button
+                type="button"
+                className="mic-btn"
+                aria-label="Segure para falar e solte para enviar. Arraste para cima para gravar sem segurar."
+                style={voice.mode === 'holding' ? { transform: `translate(${voice.drag.x - 8}px, ${voice.drag.y}px) scale(1.35)` } : undefined}
+                {...voice.micProps}
+              >
+                <IconMic />
+              </button>
+            </div>
+          )}
+
+          {voice.mode === 'locked' ? (
+            <button key="send-voice" type="button" className="send-btn" aria-label="Enviar o que foi ditado" onClick={voice.send}>
+              <IconSend />
+            </button>
+          ) : (
+            !showMic && (
+              <button key="send" type="submit" className="send-btn" aria-label="Enviar" disabled={!input.trim() || pending}>
+                <IconSend />
+              </button>
+            )
+          )}
         </form>
       </section>
     </>
