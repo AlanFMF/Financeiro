@@ -1,4 +1,4 @@
-import type Anthropic from '@anthropic-ai/sdk';
+import type { ToolDef } from './providers.js';
 import type { Db } from '../db.js';
 import { normalize } from '../lib/csv.js';
 import { MONTH_RE, monthStart } from '../lib/money.js';
@@ -32,12 +32,12 @@ export interface ToolContext {
   deleted: CreatedTransaction[];
 }
 
-export const TOOLS: Anthropic.Tool[] = [
+export const TOOLS: ToolDef[] = [
   {
     name: 'registrar_lancamentos',
     description:
       'Grava um ou mais lançamentos (gastos ou recebimentos) que o usuário contou. Use sempre que a mensagem trouxer valor e o que foi. Um item por valor citado.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         itens: {
@@ -63,7 +63,7 @@ export const TOOLS: Anthropic.Tool[] = [
     name: 'corrigir_lancamento',
     description:
       'Corrige um lançamento já gravado quando o usuário pedir ("na verdade foi 50", "era Lazer, não Compras", "foi ontem"). Use o id da lista de lançamentos recentes ou de consultar_lancamentos. Envie só os campos que mudam.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         id: { type: 'number', description: 'Id do lançamento' },
@@ -81,7 +81,7 @@ export const TOOLS: Anthropic.Tool[] = [
     name: 'excluir_lancamento',
     description:
       'Apaga um lançamento só quando o usuário pedir claramente ("apaga o do uber", "esse eu lancei errado, tira"). Nunca apague por iniciativa própria nem vários de uma vez sem o usuário listar quais.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: { id: { type: 'number', description: 'Id do lançamento' } },
       required: ['id']
@@ -90,7 +90,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: 'consultar_lancamentos',
     description: 'Lista lançamentos já gravados para responder perguntas como "quanto paguei de luz?" ou "o que gastei ontem?".',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: {
         mes: { type: 'string', description: 'AAAA-MM' },
@@ -103,7 +103,7 @@ export const TOOLS: Anthropic.Tool[] = [
   {
     name: 'resumo_do_mes',
     description: 'Totais de entradas, saídas, saldo e total por categoria de um mês.',
-    input_schema: {
+    parameters: {
       type: 'object',
       properties: { mes: { type: 'string', description: 'AAAA-MM' } },
       required: ['mes']

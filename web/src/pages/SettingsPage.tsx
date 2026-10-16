@@ -4,6 +4,7 @@ import { api, type Category, type Kind } from '../api';
 import { useAuth } from '../auth';
 import { useCategories, useInvalidate } from '../queries';
 import { useEditor } from '../components/Layout';
+import { AiSettings } from '../components/AiSettings';
 
 type InstallEvent = Event & { prompt: () => Promise<void> };
 
@@ -55,6 +56,8 @@ export function SettingsPage() {
           )}
         </section>
       )}
+
+      <AiSettings />
 
       <CategoryManager kind="saida" title="Categorias de saída" categories={categories} />
       <CategoryManager kind="entrada" title="Categorias de entrada" categories={categories} />

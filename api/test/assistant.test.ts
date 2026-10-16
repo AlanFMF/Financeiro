@@ -1,98 +1,146 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type Anthropic from '@anthropic-ai/sdk';
-import { createPgliteDb, migrate, type Db } from '../src/db.js';
-import { buildApp } from '../src/server.js';
+import { describe, expect, it } from 'vitest';
+import { ProviderError } from '../src/assistant/providers.js';
 import { parseByRules } from '../src/assistant/rules.js';
-import type { Llm } from '../src/assistant/route.js';
+import { createSecretBox } from '../src/lib/secret.js';
+import { TODAY, lastResult, say, scriptedProvider, setupAi, tool } from './ai-helpers.js';
 
-/** Modelo falso: devolve as respostas roteirizadas e guarda o que recebeu. */
-function scriptedLlm(script: ((p: Anthropic.MessageCreateParamsNonStreaming) => Partial<Anthropic.Message>)[]) {
-  const calls: Anthropic.MessageCreateParamsNonStreaming[] = [];
-  const llm: Llm = async (params) => {
-    calls.push(structuredClone(params));
-    const step = script[calls.length - 1];
-    if (!step) throw new Error('modelo falso sem roteiro');
-    return { id: 'msg', type: 'message', role: 'assistant', model: params.model, stop_reason: 'end_turn', content: [], ...step(params) } as Anthropic.Message;
-  };
-  return { llm, calls };
-}
+describe('conectar a própria IA', () => {
+  it('testa a chave, guarda criptografada e nunca devolve a chave', async () => {
+    const tested: string[] = [];
+    const ctx = await setupAi(undefined, async (provider, key) => {
+      tested.push(`${provider}:${key}`);
+      if (key.includes('errada')) throw new ProviderError('auth', 'A chave do Claude foi recusada.');
+    });
+    const put = (payload: object) => ctx.app.inject({ method: 'PUT', url: '/api/assistant/settings', headers: ctx.headers, payload });
 
-const toolUse = (name: string, input: unknown, id = 'tu_1'): Partial<Anthropic.Message> => ({
-  stop_reason: 'tool_use',
-  content: [{ type: 'tool_use', id, name, input } as Anthropic.ToolUseBlock]
+    const bad = await put({ provider: 'claude', apiKey: 'sk-ant-chave-errada-0000' });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error).toContain('recusada');
+    expect((await ctx.app.inject({ method: 'GET', url: '/api/assistant/status', headers: ctx.headers })).json().mode).toBe('simples');
+
+    const ok = await put({ provider: 'claude', apiKey: 'sk-ant-api03-certa-WXYZ' });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ configured: true, provider: 'claude', model: 'claude-haiku-5-5', keyHint: 'WXYZ' });
+    expect(ok.body).not.toContain('sk-ant-api03-certa');
+    expect(tested).toEqual(['claude:sk-ant-chave-errada-0000', 'claude:sk-ant-api03-certa-WXYZ']);
+
+    const stored = (await ctx.db.query<{ key_encrypted: string }>('select key_encrypted from ai_settings')).rows[0].key_encrypted;
+    expect(stored).not.toContain('certa');
+    expect(createSecretBox('test').decrypt(stored)).toBe('sk-ant-api03-certa-WXYZ');
+
+    // Trocar só o modelo não pede a chave de novo.
+    const model = await put({ provider: 'claude', model: 'claude-sonnet-5-5' });
+    expect(model.json()).toMatchObject({ model: 'claude-sonnet-5-5', keyHint: 'WXYZ' });
+    // Trocar de IA exige a chave da nova.
+    expect((await put({ provider: 'openai' })).statusCode).toBe(400);
+
+    const status = await ctx.app.inject({ method: 'GET', url: '/api/assistant/status', headers: ctx.headers });
+    expect(status.json()).toEqual({ mode: 'ia', provider: 'claude', model: 'claude-sonnet-5-5' });
+
+    expect((await ctx.app.inject({ method: 'DELETE', url: '/api/assistant/settings', headers: ctx.headers })).statusCode).toBe(204);
+    expect((await ctx.app.inject({ method: 'GET', url: '/api/assistant/settings', headers: ctx.headers })).json().configured).toBe(false);
+    await ctx.close();
+  });
+
+  it('a chave de um usuário não serve para outro', async () => {
+    const fake = scriptedProvider([() => say('oi')]);
+    const ctx = await setupAi(fake.factory);
+    const other = await ctx.register('outro@x.com');
+    const body = (await ctx.chat('gastei 10 no café', other)).json();
+    expect(body.mode).toBe('simples');
+    expect(fake.sessions).toHaveLength(0);
+    await ctx.close();
+  });
+
+  it('a criptografia rejeita dado adulterado', () => {
+    const box = createSecretBox('segredo');
+    const packed = box.encrypt('minha-chave');
+    const tampered = packed.slice(0, -4) + (packed.endsWith('AAAA') ? 'BBBB' : 'AAAA');
+    expect(() => box.decrypt(tampered)).toThrow();
+    expect(() => createSecretBox('outro-segredo').decrypt(packed)).toThrow();
+  });
 });
-const text = (t: string): Partial<Anthropic.Message> => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: t } as Anthropic.TextBlock] });
-
-async function setup(llm: Llm | null, extra: Record<string, number> = {}) {
-  const db: Db = await createPgliteDb();
-  await migrate(db);
-  const app = await buildApp({ db, jwtSecret: 't', rateLimit: false, assistant: { llm, ...extra } });
-  const reg = await app.inject({ method: 'POST', url: '/api/auth/register', payload: { name: 'Alan', email: 'a@a.com', password: '12345678' } });
-  const headers = { authorization: `Bearer ${reg.json().token}` };
-  const chat = (content: string, today = '2026-10-16') =>
-    app.inject({ method: 'POST', url: '/api/assistant/chat', headers, payload: { messages: [{ role: 'user', content }], today } });
-  return { app, db, headers, chat, close: async () => (await app.close(), await db.close()) };
-}
 
 describe('assistente com IA', () => {
-  let ctx: Awaited<ReturnType<typeof setup>>;
-  let fake: ReturnType<typeof scriptedLlm>;
-
-  beforeAll(async () => {
-    fake = scriptedLlm([
+  it('grava os lançamentos que a IA extraiu e devolve a resposta final', async () => {
+    const fake = scriptedProvider([
       () =>
-        toolUse('registrar_lancamentos', {
+        tool('registrar_lancamentos', {
           itens: [
-            { tipo: 'saida', categoria: 'Alimentação', valor: 45.9, data: '2026-10-16', descricao: 'Mercado' },
+            { tipo: 'saida', categoria: 'Alimentação', valor: 45.9, data: TODAY, descricao: 'Mercado' },
             { tipo: 'saida', categoria: 'transporte', valor: 120, data: '2026-10-15', descricao: 'Gasolina' },
             { tipo: 'saida', categoria: 'Categoria que não existe', valor: 30, data: 'ontem', descricao: 'Coisa' },
-            { tipo: 'saida', categoria: 'Lazer', valor: -5, data: '2026-10-16', descricao: 'Inválido' }
+            { tipo: 'saida', categoria: 'Lazer', valor: -5, data: TODAY, descricao: 'Inválido' }
           ]
         }),
-      (p) => {
-        const last = p.messages.at(-1)!;
-        const result = (last.content as Anthropic.ToolResultBlockParam[])[0].content as string;
-        return text(result.includes('ERRO') ? 'Lancei 3 itens; faltou o valor de um.' : 'Lancei tudo.');
-      }
+      (rec) => say(lastResult(rec).includes('ERRO') ? 'Lancei 3 itens; faltou o valor de um.' : 'Lancei tudo.')
     ]);
-    ctx = await setup(fake.llm);
-  });
-  afterAll(() => ctx.close());
-
-  it('grava os lançamentos que o modelo extraiu e devolve o texto final', async () => {
+    const ctx = await setupAi(fake.factory);
     const res = await ctx.chat('gastei 45,90 no mercado e 120 de gasolina ontem');
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.reply).toBe('Lancei 3 itens; faltou o valor de um.');
     expect(body.mode).toBe('ia');
     expect(body.transactions.map((t: { categoryName: string; amountCents: number; date: string }) => [t.categoryName, t.amountCents, t.date])).toEqual([
-      ['Alimentação', 4590, '2026-10-16'],
+      ['Alimentação', 4590, TODAY],
       ['Transporte', 12000, '2026-10-15'],
-      ['Imprevistos/Outros', 3000, '2026-10-16']
+      ['Imprevistos/Outros', 3000, TODAY]
     ]);
-  });
+    expect(await ctx.list()).toHaveLength(3);
 
-  it('manda ao modelo a data de hoje, as categorias do usuário e as ferramentas', () => {
-    const first = fake.calls[0];
-    expect(first.model).toBe('claude-haiku-5-5');
-    expect(first.system).toContain('2026-10-16 (sexta, hoje)');
-    expect(first.system).toContain('2026-10-09 (sexta)');
-    expect(first.system).toContain('- Moradia (aluguel, condomínio, energia/luz');
-    expect(first.tools?.map((t) => (t as Anthropic.Tool).name)).toEqual([
+    const rec = fake.sessions[0];
+    expect(rec.config).toMatchObject({ provider: 'gemini', model: 'gemini-3.8-flash', apiKey: 'AIza-chave-de-teste-1234' });
+    expect(rec.system).toContain('2026-10-16 (sexta, hoje)');
+    expect(rec.system).toContain('- Moradia (aluguel, condomínio, energia/luz');
+    expect(rec.tools.map((t) => t.name)).toEqual([
       'registrar_lancamentos',
       'corrigir_lancamento',
       'excluir_lancamento',
       'consultar_lancamentos',
       'resumo_do_mes'
     ]);
+    await ctx.close();
   });
 
-  it('os lançamentos aparecem na lista normal do app', async () => {
-    const list = (await ctx.app.inject({ method: 'GET', url: '/api/transactions?month=2026-10', headers: ctx.headers })).json();
-    expect(list.transactions).toHaveLength(3);
+  it('responde perguntas usando a ferramenta de resumo', async () => {
+    const fake = scriptedProvider([() => tool('resumo_do_mes', { mes: '2026-10' }), (rec) => say(lastResult(rec).split('\n')[0])]);
+    const ctx = await setupAi(fake.factory);
+    await ctx.importCsv('Data,Categoria,Descrição,Entrada,Saída\n05/10/2026,Pró-labore/Salário,Salário,4200,\n06/10/2026,Moradia,Luz,,300');
+    const body = (await ctx.chat('quanto sobrou esse mês?')).json();
+    expect(body.reply).toMatch(/entradas R\$\s4\.200,00, saídas R\$\s300,00, saldo R\$\s3\.900,00/);
+    expect(body.transactions).toEqual([]);
+    await ctx.close();
+  });
+
+  it('erro da IA vira mensagem clara', async () => {
+    const fake = scriptedProvider([
+      () => {
+        throw new ProviderError('quota', 'Sua conta do Gemini atingiu o limite de uso ou está sem créditos.');
+      }
+    ]);
+    const ctx = await setupAi(fake.factory);
+    const res = await ctx.chat('gastei 10 no café');
+    expect(res.statusCode).toBe(429);
+    expect(res.json().error).toContain('limite de uso');
+    await ctx.close();
+  });
+
+  it('mantém o que já foi gravado se a IA cair no meio', async () => {
+    const fake = scriptedProvider([
+      () => tool('registrar_lancamentos', { itens: [{ tipo: 'saida', categoria: 'Lazer', valor: 30, data: TODAY, descricao: 'Cinema' }] }),
+      () => {
+        throw new Error('rede caiu');
+      }
+    ]);
+    const ctx = await setupAi(fake.factory);
+    const body = (await ctx.chat('cinema 30')).json();
+    expect(body.reply).toContain('parou de responder');
+    expect(body.transactions).toHaveLength(1);
+    await ctx.close();
   });
 
   it('rejeita conversa que termina com mensagem do assistente', async () => {
+    const ctx = await setupAi();
     const res = await ctx.app.inject({
       method: 'POST',
       url: '/api/assistant/chat',
@@ -100,82 +148,27 @@ describe('assistente com IA', () => {
       payload: { messages: [{ role: 'user', content: 'oi' }, { role: 'assistant', content: 'olá' }] }
     });
     expect(res.statusCode).toBe(400);
+    await ctx.close();
   });
 });
 
-describe('assistente: consultas e falhas', () => {
-  it('responde perguntas usando a ferramenta de resumo', async () => {
-    const fake = scriptedLlm([
-      () => toolUse('resumo_do_mes', { mes: '2026-10' }),
-      (p) => {
-        const r = ((p.messages.at(-1)!.content as Anthropic.ToolResultBlockParam[])[0].content as string).split('\n')[0];
-        return text(r);
-      }
-    ]);
-    const ctx = await setup(fake.llm);
-    await ctx.app.inject({
-      method: 'POST',
-      url: '/api/import/csv',
-      headers: ctx.headers,
-      payload: { csv: 'Data,Categoria,Descrição,Entrada,Saída\n05/10/2026,Pró-labore/Salário,Salário,4200,\n06/10/2026,Moradia,Luz,,300', dryRun: false }
-    });
-    const body = (await ctx.chat('quanto sobrou esse mês?')).json();
-    expect(body.reply).toMatch(/entradas R\$\s4\.200,00, saídas R\$\s300,00, saldo R\$\s3\.900,00/);
-    expect(body.transactions).toEqual([]);
-    await ctx.close();
-  });
-
-  it('erro da API vira mensagem clara sem derrubar o servidor', async () => {
-    const llm: Llm = async () => {
-      throw new Error('rede caiu');
-    };
-    const ctx = await setup(llm);
-    const res = await ctx.chat('gastei 10 no café');
-    expect(res.statusCode).toBe(502);
-    expect(res.json().error).toContain('A IA não respondeu');
-    await ctx.close();
-  });
-
-  it('limita mensagens das contas de demonstração', async () => {
-    const db = await createPgliteDb();
-    await migrate(db);
-    const app = await buildApp({ db, jwtSecret: 't', rateLimit: false, assistant: { llm: null, demoLimit: 2 } });
-    const { token } = (await app.inject({ method: 'POST', url: '/api/auth/demo' })).json();
-    const send = () =>
-      app.inject({
-        method: 'POST',
-        url: '/api/assistant/chat',
-        headers: { authorization: `Bearer ${token}` },
-        payload: { messages: [{ role: 'user', content: 'gastei 5 no café' }] }
-      });
-    expect((await send()).statusCode).toBe(200);
-    expect((await send()).statusCode).toBe(200);
-    const third = await send();
-    expect(third.statusCode).toBe(429);
-    expect(third.json().error).toContain('Crie uma conta');
-    await app.close();
-    await db.close();
-  });
-});
-
-describe('modo simples (sem chave da IA)', () => {
+describe('modo simples (sem IA conectada)', () => {
   it('lança pelo endpoint usando as regras', async () => {
-    const ctx = await setup(null);
-    const status = (await ctx.app.inject({ method: 'GET', url: '/api/assistant/status', headers: ctx.headers })).json();
-    expect(status.mode).toBe('simples');
+    const ctx = await setupAi();
     const body = (await ctx.chat('paguei 150 de condomínio e 89,90 de internet')).json();
+    expect(body.mode).toBe('simples');
     expect(body.reply.replace(/\s/g, ' ')).toBe('Lancei R$ 150,00 em Moradia e R$ 89,90 em Contas.');
     await ctx.close();
   });
 
   it.each([
-    ['gastei 45,90 no mercado', [['saida', 'Alimentação', 4590, '2026-10-16', 'Mercado']]],
-    ['recebi 4.200 de salário', [['entrada', 'Pró-labore/Salário', 420000, '2026-10-16', 'Salário']]],
+    ['gastei 45,90 no mercado', [['saida', 'Alimentação', 4590, TODAY, 'Mercado']]],
+    ['recebi 4.200 de salário', [['entrada', 'Pró-labore/Salário', 420000, TODAY, 'Salário']]],
     ['ontem paguei R$ 1.227,76 do financiamento do carro', [['saida', 'Transporte', 122776, '2026-10-15', 'Financiamento do carro']]],
-    ['gastei 30 no uber; 25 na farmácia', [['saida', 'Transporte', 3000, '2026-10-16', 'Uber'], ['saida', 'Saúde', 2500, '2026-10-16', 'Farmácia']]],
+    ['gastei 30 no uber; 25 na farmácia', [['saida', 'Transporte', 3000, TODAY, 'Uber'], ['saida', 'Saúde', 2500, TODAY, 'Farmácia']]],
     ['dia 10 paguei 300 de luz', [['saida', 'Moradia', 30000, '2026-10-10', 'Luz']]],
     ['oi, tudo bem?', []]
   ])('"%s"', (msg, expected) => {
-    expect(parseByRules(msg, '2026-10-16').map((i) => [i.kind, i.category, i.amountCents, i.date, i.description])).toEqual(expected);
+    expect(parseByRules(msg, TODAY).map((i) => [i.kind, i.category, i.amountCents, i.date, i.description])).toEqual(expected);
   });
 });

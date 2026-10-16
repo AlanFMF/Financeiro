@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api, ApiError, type Transaction } from '../api';
 import { dayLabel, money, todayIso } from '../format';
@@ -25,6 +26,7 @@ interface ChatResponse {
 }
 
 const STORAGE_KEY = 'saldo.chat';
+const PROVIDER_LABEL = { claude: 'Claude', openai: 'ChatGPT', gemini: 'Gemini' } as const;
 const SUGGESTIONS_IA = [
   'Mercado deu 230, mas 40 foi ração',
   'Comprei um tênis de 600 em 6x no cartão',
@@ -67,11 +69,12 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
   const recognition = useRef<Recognition | null>(null);
   const invalidate = useInvalidate();
   const editor = useEditor();
+  const navigate = useNavigate();
 
   const status = useQuery({
     queryKey: ['assistant-status'],
-    queryFn: () => api.get<{ mode: 'ia' | 'simples' }>('/assistant/status'),
-    staleTime: Infinity,
+    queryFn: () => api.get<{ mode: 'ia' | 'simples'; provider: 'claude' | 'openai' | 'gemini' | null }>('/assistant/status'),
+    staleTime: 60_000,
     enabled: open
   });
 
@@ -183,7 +186,24 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
         <header className="chat-head">
           <div>
             <h2 id="chat-title">Assistente</h2>
-            <p>{simple ? 'Modo simples: diga o valor e o que foi' : 'Conte o que gastou ou recebeu, ou peça uma correção'}</p>
+            <p>
+              {simple ? (
+                <>
+                  Modo simples.{' '}
+                  <button
+                    className="link-btn inline"
+                    onClick={() => {
+                      onOpenChange(false);
+                      navigate('/ajustes#ia');
+                    }}
+                  >
+                    Conectar sua IA
+                  </button>
+                </>
+              ) : (
+                `Usando ${PROVIDER_LABEL[status.data?.provider ?? 'claude']}. Conte o que gastou ou recebeu.`
+              )}
+            </p>
           </div>
           {messages.length > 0 && (
             <button className="link-btn" onClick={() => setMessages([])}>

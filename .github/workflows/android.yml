@@ -1,0 +1,82 @@
+name: APK Android
+
+# Gera o APK a cada envio para a main (ou manualmente em Actions, "Run workflow")
+# e publica em Releases com um link fixo: /releases/download/apk/saldo.apk
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - run: npm ci
+
+      - name: Build do app web
+        env:
+          # Endereço da API publicada (Settings, Secrets and variables, Actions, Variables).
+          # Sem ele, o app pede o endereço do servidor na tela de entrada.
+          VITE_API_URL: ${{ vars.SALDO_API_URL }}
+        run: npm run build -w web
+
+      - name: Copia o app web para o projeto Android
+        working-directory: web
+        run: npx cap sync android
+
+      - name: Chave de assinatura de produção (opcional)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          fi
+
+      - name: Gera o APK
+        working-directory: web/android
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: 1.${{ github.run_number }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/saldo.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: saldo-apk
+          path: saldo.apk
+
+      - name: Publica em Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete apk --yes --cleanup-tag || true
+          gh release create apk saldo.apk \
+            --target "$GITHUB_SHA" \
+            --title "Saldo para Android (versão 1.${{ github.run_number }})" \
+            --notes "APK gerado automaticamente a partir do commit ${GITHUB_SHA::7}. Para instalar no Android: baixe saldo.apk pelo celular, abra o arquivo e permita instalar apps desta fonte quando o Android pedir."

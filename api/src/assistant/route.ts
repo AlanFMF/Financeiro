@@ -1,56 +1,22 @@
 import type { FastifyPluginAsync } from 'fastify';
-import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { HttpError } from '../server.js';
+import type { Db } from '../db.js';
+import type { SecretBox } from '../lib/secret.js';
+import { TX_SELECT } from '../routes/transactions.js';
 import { buildSystemPrompt } from './prompt.js';
+import { PROVIDERS, ProviderError, type ProviderFactory, type ProviderId, type ToolResult, type Turn } from './providers.js';
 import { isDeleteLastCommand, parseByRules, type HistoryHint } from './rules.js';
 import { TOOLS, insertTransaction, runTool, type CategoryRow, type CreatedTransaction, type ToolContext } from './tools.js';
-import { TX_SELECT } from '../routes/transactions.js';
-import type { Db } from '../db.js';
-
-/** Para cada descrição, a categoria que o usuário mais usou com ela. */
-async function loadHabits(db: Db, userId: number): Promise<HistoryHint[]> {
-  const { rows } = await db.query<{ description: string; category: string; kind: 'entrada' | 'saida' }>(
-    `select distinct on (lower(t.description)) t.description, c.name as category, c.kind
-     from (
-       select category_id, description, count(*) as n, max(date) as last
-       from transactions
-       where user_id = $1 and description <> ''
-       group by category_id, description
-     ) t join categories c on c.id = t.category_id
-     order by lower(t.description), t.n desc, t.last desc`,
-    [userId]
-  );
-  // Mais frequentes primeiro, para o prompt levar os hábitos mais úteis.
-  const freq = await db.query<{ d: string; n: string | number }>(
-    `select lower(description) as d, count(*) as n from transactions where user_id = $1 and description <> '' group by 1`,
-    [userId]
-  );
-  const count = new Map(freq.rows.map((r) => [r.d, Number(r.n)]));
-  return rows
-    .map((r) => ({ ...r, description: r.description.replace(/\s*\(\d+\/\d+\)\s*$/, '') }))
-    .sort((a, b) => (count.get(b.description.toLowerCase()) ?? 0) - (count.get(a.description.toLowerCase()) ?? 0))
-    .slice(0, 300);
-}
-
-/** Função que chama o modelo. Em produção é a API da Claude; nos testes, um modelo falso. */
-export type Llm = (params: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>;
-
-export function createClaudeLlm(apiKey: string): Llm {
-  const client = new Anthropic({ apiKey, maxRetries: 2, timeout: 30_000 });
-  return (params) => client.messages.create(params);
-}
 
 export interface AssistantOptions {
-  llm: Llm | null;
-  model: string;
+  secretBox: SecretBox;
+  providerFactory: ProviderFactory;
+  verifyKey: (provider: ProviderId, apiKey: string) => Promise<void>;
   timeZone: string;
-  /** Mensagens por hora para contas normais. */
+  /** Mensagens por hora por usuário (protege o servidor e a conta de IA do usuário contra laços). */
   hourlyLimit: number;
-  /** Mensagens no total por conta de demonstração. */
-  demoLimit: number;
-  /** Teto diário somando todas as contas de demonstração (protege o custo da demo pública). */
-  demoDailyLimit: number;
+  rateLimit?: boolean;
 }
 
 const chatBody = z.object({
@@ -61,40 +27,69 @@ const chatBody = z.object({
   today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
 });
 
+const providerId = z.enum(['claude', 'openai', 'gemini']);
+const settingsBody = z.object({
+  provider: providerId,
+  apiKey: z.string().trim().min(10, 'Cole a chave completa').max(400).optional(),
+  model: z
+    .string()
+    .trim()
+    .max(80)
+    .regex(/^[\w.\-:/]*$/, 'Nome de modelo inválido')
+    .optional()
+});
+
 const MAX_TOOL_ROUNDS = 6;
+
+interface SettingsRow {
+  provider: ProviderId;
+  model: string;
+  key_encrypted: string;
+  key_hint: string;
+}
+
+/** Para cada descrição, a categoria que o usuário mais usou com ela, das mais frequentes para as menos. */
+async function loadHabits(db: Db, userId: number): Promise<HistoryHint[]> {
+  const { rows } = await db.query<{ description: string; category: string; kind: 'entrada' | 'saida'; total: string | number }>(
+    `select distinct on (lower(t.description)) t.description, c.name as category, c.kind,
+       sum(t.n) over (partition by lower(t.description)) as total
+     from (
+       select category_id, description, count(*) as n, max(date) as last
+       from transactions
+       where user_id = $1 and description <> ''
+       group by category_id, description
+     ) t join categories c on c.id = t.category_id
+     order by lower(t.description), t.n desc, t.last desc`,
+    [userId]
+  );
+  return rows
+    .sort((a, b) => Number(b.total) - Number(a.total))
+    .slice(0, 300)
+    .map((r) => ({ description: r.description.replace(/\s*\(\d+\/\d+\)\s*$/, ''), category: r.category, kind: r.kind }));
+}
+
+function toHttpError(err: unknown): HttpError {
+  if (err instanceof ProviderError) {
+    const status = { auth: 400, quota: 429, model: 400, unavailable: 503, other: 502 }[err.kind];
+    return new HttpError(status, err.message);
+  }
+  return new HttpError(502, 'A IA não respondeu. Tente de novo ou use o botão + para lançar.');
+}
 
 export const assistantRoutes: FastifyPluginAsync<AssistantOptions> = async (app, opts) => {
   app.addHook('onRequest', app.authenticate);
 
   const hourly = new Map<number, number[]>();
-  const demoUsage = new Map<number, number>();
-  let demoDay = '';
-  let demoToday = 0;
-
   const localToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: opts.timeZone }).format(new Date());
 
   /** Aceita a data do aparelho (fuso do usuário) se estiver a no máximo 1 dia da data do servidor. */
   const resolveToday = (client?: string) => {
     const server = localToday();
     if (!client) return server;
-    const diff = Math.abs(Date.parse(client) - Date.parse(server)) / 86_400_000;
-    return diff <= 1 ? client : server;
+    return Math.abs(Date.parse(client) - Date.parse(server)) / 86_400_000 <= 1 ? client : server;
   };
 
-  function checkLimits(userId: number, isDemo: boolean) {
-    if (isDemo) {
-      const today = localToday();
-      if (today !== demoDay) {
-        demoDay = today;
-        demoToday = 0;
-      }
-      const used = demoUsage.get(userId) ?? 0;
-      if (used >= opts.demoLimit) throw new HttpError(429, `A demonstração permite ${opts.demoLimit} mensagens ao assistente. Crie uma conta para continuar.`);
-      if (demoToday >= opts.demoDailyLimit) throw new HttpError(429, 'O assistente da demonstração atingiu o limite de hoje. Tente amanhã ou crie uma conta.');
-      demoUsage.set(userId, used + 1);
-      demoToday++;
-      return;
-    }
+  function checkLimit(userId: number) {
     const now = Date.now();
     const recent = (hourly.get(userId) ?? []).filter((t) => now - t < 3_600_000);
     if (recent.length >= opts.hourlyLimit) throw new HttpError(429, 'Muitas mensagens em pouco tempo. Espere alguns minutos.');
@@ -102,17 +97,68 @@ export const assistantRoutes: FastifyPluginAsync<AssistantOptions> = async (app,
     hourly.set(userId, recent);
   }
 
-  app.get('/status', async () => ({ mode: opts.llm ? 'ia' : 'simples', model: opts.llm ? opts.model : null }));
+  const loadSettings = async (userId: number) =>
+    (await app.db.query<SettingsRow>('select provider, model, key_encrypted, key_hint from ai_settings where user_id = $1', [userId])).rows[0];
+
+  const publicSettings = (s?: SettingsRow) => ({
+    configured: Boolean(s),
+    provider: s?.provider ?? null,
+    model: s?.model ?? null,
+    keyHint: s?.key_hint ?? null,
+    providers: PROVIDERS
+  });
+
+  // ------------------------------------------------------------ ajustes da IA
+
+  app.get('/status', async (req) => {
+    const s = await loadSettings(req.user.sub);
+    return { mode: s ? 'ia' : 'simples', provider: s?.provider ?? null, model: s?.model ?? null };
+  });
+
+  app.get('/settings', async (req) => publicSettings(await loadSettings(req.user.sub)));
+
+  const limited = opts.rateLimit === false ? {} : { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } };
+
+  /** Conecta ou troca a IA. A chave é testada antes de ser salva e nunca é devolvida. */
+  app.put('/settings', limited, async (req) => {
+    const body = settingsBody.parse(req.body);
+    const userId = req.user.sub;
+    const current = await loadSettings(userId);
+    const model = body.model || (current?.provider === body.provider ? current.model : PROVIDERS[body.provider].defaultModel);
+
+    if (!body.apiKey) {
+      if (!current || current.provider !== body.provider) throw new HttpError(400, 'Cole a chave de API para conectar.');
+      await app.db.query('update ai_settings set model = $2, updated_at = now() where user_id = $1', [userId, model]);
+      return publicSettings(await loadSettings(userId));
+    }
+
+    try {
+      await opts.verifyKey(body.provider, body.apiKey);
+    } catch (err) {
+      throw toHttpError(err);
+    }
+    await app.db.query(
+      `insert into ai_settings (user_id, provider, model, key_encrypted, key_hint) values ($1, $2, $3, $4, $5)
+       on conflict (user_id) do update set provider = excluded.provider, model = excluded.model,
+         key_encrypted = excluded.key_encrypted, key_hint = excluded.key_hint, updated_at = now()`,
+      [userId, body.provider, model, opts.secretBox.encrypt(body.apiKey), body.apiKey.slice(-4)]
+    );
+    return publicSettings(await loadSettings(userId));
+  });
+
+  app.delete('/settings', async (req, reply) => {
+    await app.db.query('delete from ai_settings where user_id = $1', [req.user.sub]);
+    return reply.code(204).send();
+  });
+
+  // ------------------------------------------------------------ conversa
 
   app.post('/chat', async (req) => {
     const body = chatBody.parse(req.body);
     const userId = req.user.sub;
     const last = body.messages[body.messages.length - 1];
     if (last.role !== 'user') throw new HttpError(400, 'A última mensagem precisa ser do usuário.');
-
-    const user = (await app.db.query<{ is_demo: boolean }>('select is_demo from users where id = $1', [userId])).rows[0];
-    if (!user) throw new HttpError(401, 'Conta não encontrada. Entre de novo.');
-    checkLimits(userId, user.is_demo);
+    checkLimit(userId);
 
     const categories = (
       await app.db.query<CategoryRow>('select id, name, kind from categories where user_id = $1 and not archived order by kind, position', [userId])
@@ -121,7 +167,15 @@ export const assistantRoutes: FastifyPluginAsync<AssistantOptions> = async (app,
     const ctx: ToolContext = { db: app.db, userId, categories, today, created: [], updated: [], deleted: [] };
     const habits = await loadHabits(app.db, userId);
 
-    if (!opts.llm) return simpleMode(ctx, last.content, habits);
+    const settings = await loadSettings(userId);
+    if (!settings) return simpleMode(ctx, last.content, habits);
+
+    let apiKey: string;
+    try {
+      apiKey = opts.secretBox.decrypt(settings.key_encrypted);
+    } catch {
+      throw new HttpError(400, 'Não consegui ler a chave salva. Conecte a IA de novo em Ajustes.');
+    }
 
     const recent = (
       await app.db.query<CreatedTransaction>(`${TX_SELECT} where t.user_id = $1 order by t.created_at desc, t.id desc limit 12`, [userId])
@@ -130,41 +184,29 @@ export const assistantRoutes: FastifyPluginAsync<AssistantOptions> = async (app,
     // Histórico: começa sempre numa mensagem do usuário e guarda só as últimas trocas.
     let history = body.messages.slice(-16);
     while (history[0]?.role !== 'user') history = history.slice(1);
-    const messages: Anthropic.MessageParam[] = history.map((m) => ({ role: m.role, content: m.content }));
+
+    const session = opts.providerFactory({ provider: settings.provider, apiKey, model: settings.model });
     const system = buildSystemPrompt({ categories, today, history: habits, recent });
 
     let reply = '';
     try {
-      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-        const res = await opts.llm({ model: opts.model, max_tokens: 1024, system, tools: TOOLS, messages });
-        messages.push({ role: 'assistant', content: res.content });
-        const text = res.content
-          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-          .map((b) => b.text)
-          .join('\n')
-          .trim();
-        if (res.stop_reason !== 'tool_use') {
-          reply = text;
-          break;
+      let turn: Turn = await session.start({ system, history, tools: TOOLS });
+      for (let round = 0; round < MAX_TOOL_ROUNDS && turn.toolCalls.length; round++) {
+        const results: ToolResult[] = [];
+        for (const call of turn.toolCalls) {
+          const r = await runTool(call.name, call.input, ctx);
+          results.push({ call, content: r.content, isError: r.isError });
         }
-        const results: Anthropic.ToolResultBlockParam[] = [];
-        for (const block of res.content) {
-          if (block.type !== 'tool_use') continue;
-          const r = await runTool(block.name, (block.input ?? {}) as Record<string, unknown>, ctx);
-          results.push({ type: 'tool_result', tool_use_id: block.id, content: r.content, is_error: r.isError });
-        }
-        messages.push({ role: 'user', content: results });
+        turn = await session.continue(results);
       }
+      reply = turn.text;
     } catch (err) {
-      req.log.error(err, 'falha na API da Claude');
+      req.log.warn({ err, provider: settings.provider }, 'falha na IA do usuário');
       if (ctx.created.length || ctx.updated.length || ctx.deleted.length) {
         // O que já foi gravado continua valendo; só a frase final não veio.
         return { reply: 'Fiz as mudanças abaixo, mas a IA parou de responder antes de terminar.', ...changes(ctx), mode: 'ia' };
       }
-      const status = err instanceof Anthropic.APIError ? err.status : undefined;
-      if (status === 401 || status === 403) throw new HttpError(502, 'A chave da API da Claude foi recusada. Confira ANTHROPIC_API_KEY no servidor.');
-      if (status === 429 || status === 529) throw new HttpError(503, 'A IA está ocupada agora. Tente de novo em alguns segundos.');
-      throw new HttpError(502, 'A IA não respondeu. Tente de novo ou use o botão + para lançar.');
+      throw toHttpError(err);
     }
 
     if (!reply) reply = ctx.created.length || ctx.updated.length || ctx.deleted.length ? 'Pronto.' : 'Não consegui entender. Pode dizer o valor e o que foi?';
@@ -189,7 +231,7 @@ async function simpleMode(ctx: ToolContext, message: string, habits: HistoryHint
   if (!items.length) {
     return {
       reply:
-        'Não achei um valor nessa frase. Tente algo como "gastei 45,90 no mercado ontem" ou "recebi 4.200 de salário". Para corrigir ou fazer perguntas, ligue a IA com a chave da API.',
+        'Não achei um valor nessa frase. Tente algo como "gastei 45,90 no mercado ontem" ou "recebi 4.200 de salário". Para corrigir lançamentos ou fazer perguntas, conecte sua IA em Ajustes.',
       ...changes(ctx),
       mode: 'simples'
     };

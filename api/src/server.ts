@@ -10,6 +10,8 @@ import { transactionRoutes } from './routes/transactions.js';
 import { summaryRoutes } from './routes/summary.js';
 import { importExportRoutes } from './routes/import-export.js';
 import { assistantRoutes, type AssistantOptions } from './assistant/route.js';
+import { createProviderSession, verifyApiKey } from './assistant/providers.js';
+import { createSecretBox } from './lib/secret.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -31,6 +33,8 @@ export interface AppOptions {
   corsOrigin?: string[] | boolean;
   logger?: boolean;
   rateLimit?: boolean;
+  /** Segredo para criptografar as chaves de IA dos usuários. Sem ele, usa um derivado do JWT_SECRET. */
+  aiKeySecret?: string;
   assistant?: Partial<AssistantOptions>;
 }
 
@@ -82,12 +86,12 @@ export async function buildApp(opts: AppOptions) {
   await app.register(importExportRoutes, { prefix: '/api' });
   await app.register(assistantRoutes, {
     prefix: '/api/assistant',
-    llm: null,
-    model: 'claude-haiku-5-5',
+    secretBox: createSecretBox(opts.aiKeySecret ?? opts.jwtSecret),
+    providerFactory: createProviderSession,
+    verifyKey: (provider, key) => verifyApiKey(provider, key),
     timeZone: 'America/Sao_Paulo',
     hourlyLimit: 60,
-    demoLimit: 15,
-    demoDailyLimit: 300,
+    rateLimit: opts.rateLimit ?? true,
     ...opts.assistant
   });
 

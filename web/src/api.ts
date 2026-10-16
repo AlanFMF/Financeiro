@@ -1,5 +1,39 @@
-const BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '') + '/api';
+import { Capacitor } from '@capacitor/core';
+
 const TOKEN_KEY = 'saldo.token';
+const SERVER_KEY = 'saldo.server';
+
+/** true dentro do APK (Capacitor); false no navegador. */
+export const isNativeApp = Capacitor.isNativePlatform();
+
+const DEFAULT_SERVER = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+
+/**
+ * Endereço da API. No navegador é o mesmo site (ou VITE_API_URL). No APK vem do build
+ * ou do que a pessoa digitou na tela de entrada, para trocar de servidor sem gerar outro APK.
+ */
+export const serverStore = {
+  get(): string {
+    try {
+      return localStorage.getItem(SERVER_KEY) || DEFAULT_SERVER;
+    } catch {
+      return DEFAULT_SERVER;
+    }
+  },
+  set(url: string) {
+    const clean = url.trim().replace(/\/+$/, '').replace(/\/api$/, '');
+    try {
+      if (clean && clean !== DEFAULT_SERVER) localStorage.setItem(SERVER_KEY, clean);
+      else localStorage.removeItem(SERVER_KEY);
+    } catch {
+      /* sem armazenamento: usa o padrão */
+    }
+  },
+  isDefault: () => serverStore.get() === DEFAULT_SERVER,
+  hasDefault: Boolean(DEFAULT_SERVER)
+};
+
+const base = () => serverStore.get() + '/api';
 
 export const tokenStore = {
   get: () => {
@@ -32,7 +66,7 @@ async function request<T>(method: string, path: string, body?: unknown, raw = fa
   const token = tokenStore.get();
   let res: Response;
   try {
-    res = await fetch(BASE + path, {
+    res = await fetch(base() + path, {
       method,
       headers: {
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
@@ -41,7 +75,12 @@ async function request<T>(method: string, path: string, body?: unknown, raw = fa
       body: body !== undefined ? JSON.stringify(body) : undefined
     });
   } catch {
-    throw new ApiError(0, 'Sem conexão com o servidor. Confira a internet e tente de novo.');
+    throw new ApiError(
+      0,
+      isNativeApp && !serverStore.get()
+        ? 'Informe o endereço do servidor abaixo para entrar.'
+        : 'Sem conexão com o servidor. Confira a internet e tente de novo.'
+    );
   }
   if (res.status === 401 && token) onUnauthorized();
   if (!res.ok) {

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { api, ApiError, type User } from '../api';
+import { api, ApiError, isNativeApp, serverStore, type User } from '../api';
 import { useAuth } from '../auth';
 
 type Mode = 'entrar' | 'criar';
@@ -13,8 +13,18 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [server, setServer] = useState(serverStore.get());
+  const [editServer, setEditServer] = useState(isNativeApp && !serverStore.get());
 
   async function go(path: string, body?: unknown) {
+    if (isNativeApp) {
+      if (!server.trim()) {
+        setEditServer(true);
+        setError('Informe o endereço do servidor para entrar.');
+        return;
+      }
+      serverStore.set(server);
+    }
     setBusy(true);
     setError(null);
     setFieldErrors({});
@@ -107,6 +117,34 @@ export function LoginPage() {
             {busy ? 'Aguarde…' : mode === 'entrar' ? 'Entrar' : 'Criar conta'}
           </button>
         </form>
+
+        {isNativeApp && (
+          <div className="server-field">
+            {editServer ? (
+              <label className="field">
+                <span>Endereço do servidor</span>
+                <input
+                  type="url"
+                  inputMode="url"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  placeholder="https://saldo-api.onrender.com"
+                  value={server}
+                  onChange={(e) => setServer(e.target.value)}
+                />
+                <small className="muted">O endereço da API publicada no Render, ou do seu PC na mesma rede Wi-Fi (http://192.168.x.x:3333).</small>
+              </label>
+            ) : (
+              <p className="muted">
+                Servidor: {server.replace(/^https?:\/\//, '')}{' '}
+                <button type="button" className="link-btn inline" onClick={() => setEditServer(true)}>
+                  Alterar
+                </button>
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="demo-cta">
           <p>Só quer conhecer?</p>

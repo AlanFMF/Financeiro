@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type Anthropic from '@anthropic-ai/sdk';
-import { createPgliteDb, migrate } from '../src/db.js';
-import { buildApp } from '../src/server.js';
 import { findDate, normalizeAmounts, parseByRules } from '../src/assistant/rules.js';
-import type { Llm } from '../src/assistant/route.js';
-
-const TODAY = '2026-10-16'; // sexta-feira
+import { TODAY, lastResult, say, scriptedProvider, setupAi, tool } from './ai-helpers.js';
 
 describe('modo simples: frases mais complexas', () => {
   const run = (msg: string, history = []) =>
@@ -87,52 +82,17 @@ describe('modo simples: frases mais complexas', () => {
   });
 });
 
-/** Modelo falso que segue um roteiro e guarda as chamadas. */
-function scripted(steps: ((p: Anthropic.MessageCreateParamsNonStreaming) => Partial<Anthropic.Message>)[]) {
-  const calls: Anthropic.MessageCreateParamsNonStreaming[] = [];
-  const llm: Llm = async (params) => {
-    calls.push(structuredClone(params));
-    const step = steps[calls.length - 1];
-    return { id: 'm', type: 'message', role: 'assistant', model: params.model, stop_reason: 'end_turn', content: [], ...step(params) } as Anthropic.Message;
-  };
-  return { llm, calls };
-}
-const tool = (name: string, input: unknown): Partial<Anthropic.Message> => ({
-  stop_reason: 'tool_use',
-  content: [{ type: 'tool_use', id: `tu_${name}`, name, input } as Anthropic.ToolUseBlock]
-});
-const say = (text: string): Partial<Anthropic.Message> => ({ content: [{ type: 'text', text } as Anthropic.TextBlock] });
-const lastToolResult = (p: Anthropic.MessageCreateParamsNonStreaming) =>
-  ((p.messages.at(-1)!.content as Anthropic.ToolResultBlockParam[])[0].content as string);
-
-async function setup(llm: Llm | null) {
-  const db = await createPgliteDb();
-  await migrate(db);
-  const app = await buildApp({ db, jwtSecret: 't', rateLimit: false, assistant: { llm } });
-  const register = async (email: string) => {
-    const r = await app.inject({ method: 'POST', url: '/api/auth/register', payload: { name: 'X', email, password: '12345678' } });
-    return { authorization: `Bearer ${r.json().token}` };
-  };
-  const headers = await register('dono@x.com');
-  const chat = (content: string, h = headers) =>
-    app.inject({ method: 'POST', url: '/api/assistant/chat', headers: h, payload: { messages: [{ role: 'user', content }], today: TODAY } });
-  const importCsv = (csv: string) => app.inject({ method: 'POST', url: '/api/import/csv', headers, payload: { csv, dryRun: false } });
-  const list = async () => (await app.inject({ method: 'GET', url: '/api/transactions', headers })).json().transactions;
-  return { app, db, headers, register, chat, importCsv, list, close: async () => (await app.close(), await db.close()) };
-}
-
 describe('IA: correções, exclusões e contexto', () => {
   it('corrige o valor de um lançamento recente e devolve o cartão alterado', async () => {
     let gasolinaId = 0;
-    const fake = scripted([
-      (p) => {
-        const sys = p.system as string;
-        gasolinaId = Number(sys.match(/#(\d+) \| 2026-10-15 \| saida \| Transporte \| Gasolina/)![1]);
+    const fake = scriptedProvider([
+      (rec) => {
+        gasolinaId = Number(rec.system.match(/#(\d+) \| 2026-10-15 \| saida \| Transporte \| Gasolina/)![1]);
         return tool('corrigir_lancamento', { id: gasolinaId, valor: 160 });
       },
-      (p) => say(lastToolResult(p).startsWith('Corrigido') ? 'Corrigi a gasolina para R$ 160,00.' : 'falhou')
+      (rec) => say(lastResult(rec).startsWith('Corrigido') ? 'Corrigi a gasolina para R$ 160,00.' : 'falhou')
     ]);
-    const ctx = await setup(fake.llm);
+    const ctx = await setupAi(fake.factory);
     await ctx.importCsv('Data,Categoria,Descrição,Entrada,Saída\n15/10/2026,Transporte,Gasolina,,120');
 
     const body = (await ctx.chat('na verdade a gasolina foi 160')).json();
@@ -144,51 +104,35 @@ describe('IA: correções, exclusões e contexto', () => {
   });
 
   it('exclui quando pedido e não toca em lançamento de outra pessoa', async () => {
-    const ctx = await setup(null);
-    const intruder = await ctx.register('outro@x.com');
+    let target = 0;
+    const fake = scriptedProvider([() => tool('excluir_lancamento', { id: target }), (rec) => say(lastResult(rec))]);
+    const ctx = await setupAi(fake.factory);
     await ctx.importCsv('Data,Categoria,Descrição,Entrada,Saída\n14/10/2026,Transporte,Uber,,32');
     const [uber] = await ctx.list();
+    target = uber.id;
 
-    // O outro usuário tenta, via IA, apagar o lançamento do dono.
-    const fake = scripted([() => tool('excluir_lancamento', { id: uber.id }), (p) => say(lastToolResult(p))]);
-    const app2 = await buildApp({ db: ctx.db, jwtSecret: 't', rateLimit: false, assistant: { llm: fake.llm } });
-    const attempt = (
-      await app2.inject({
-        method: 'POST',
-        url: '/api/assistant/chat',
-        headers: intruder,
-        payload: { messages: [{ role: 'user', content: `apaga o lançamento ${uber.id}` }], today: TODAY }
-      })
-    ).json();
+    // Outro usuário, com a própria IA conectada, tenta apagar o lançamento do dono.
+    const intruder = await ctx.register('outro@x.com');
+    await ctx.app.inject({ method: 'PUT', url: '/api/assistant/settings', headers: intruder, payload: { provider: 'openai', apiKey: 'sk-proj-intruso-9999' } });
+    const attempt = (await ctx.chat(`apaga o lançamento ${uber.id}`, intruder)).json();
     expect(attempt.reply).toContain('não encontrado');
     expect(await ctx.list()).toHaveLength(1);
 
     // O dono pede e a exclusão acontece.
-    const fake2 = scripted([() => tool('excluir_lancamento', { id: uber.id }), () => say('Apaguei o Uber de R$ 32,00.')]);
-    const app3 = await buildApp({ db: ctx.db, jwtSecret: 't', rateLimit: false, assistant: { llm: fake2.llm } });
-    const ok = (
-      await app3.inject({
-        method: 'POST',
-        url: '/api/assistant/chat',
-        headers: ctx.headers,
-        payload: { messages: [{ role: 'user', content: 'apaga o do uber' }], today: TODAY }
-      })
-    ).json();
+    const ok = (await ctx.chat('apaga o do uber')).json();
     expect(ok.deleted).toMatchObject([{ id: uber.id, description: 'Uber' }]);
     expect(await ctx.list()).toHaveLength(0);
-    await app2.close();
-    await app3.close();
     await ctx.close();
   });
 
-  it('manda ao modelo os hábitos de categoria e os lançamentos recentes', async () => {
-    const fake = scripted([() => say('ok')]);
-    const ctx = await setup(fake.llm);
+  it('manda à IA os hábitos de categoria e os lançamentos recentes', async () => {
+    const fake = scriptedProvider([() => say('ok')]);
+    const ctx = await setupAi(fake.factory);
     await ctx.importCsv(
       'Data,Categoria,Descrição,Entrada,Saída\n01/10/2026,Pet,Ração,,90\n08/10/2026,Pet,Ração,,90\n09/10/2026,Lazer,Padaria do Zé,,20'
     );
     await ctx.chat('oi');
-    const sys = fake.calls[0].system as string;
+    const sys = fake.sessions[0].system;
     expect(sys).toMatch(/"Ração" → Pet\n- "Padaria do Zé" → Lazer/);
     expect(sys).toMatch(/#\d+ \| 2026-10-09 \| saida \| Lazer \| Padaria do Zé \| R\$\s20,00/);
     await ctx.close();
@@ -197,7 +141,7 @@ describe('IA: correções, exclusões e contexto', () => {
 
 describe('modo simples na API', () => {
   it('usa o histórico e apaga o último lançamento quando pedido', async () => {
-    const ctx = await setup(null);
+    const ctx = await setupAi();
     await ctx.importCsv('Data,Categoria,Descrição,Entrada,Saída\n01/10/2026,Lazer,Padaria do Zé,,20');
 
     const added = (await ctx.chat('padaria do zé 35 ontem')).json();

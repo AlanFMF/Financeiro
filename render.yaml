@@ -17,5 +17,5 @@ services:
         sync: false
       - key: CORS_ORIGIN
         sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
+      - key: AI_KEY_SECRET
+        generateValue: true

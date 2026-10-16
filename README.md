@@ -28,7 +28,8 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Para onde foi**: total e percentual por categoria, histórico de seis meses e busca com filtro.
 - **Importação da planilha**: CSV com Data, Categoria, Descrição, Entrada e Saída (ou extrato com coluna Valor). Mostra uma prévia, aponta linhas com erro, cria categorias novas e não duplica o que já foi importado.
 - **Exportação** no mesmo formato da planilha.
-- **PWA instalável**, funciona offline para abrir o app, modo escuro automático e layout pensado primeiro para o celular.
+- **Cada um usa a própria IA**: em Ajustes, a pessoa escolhe Claude, ChatGPT ou Gemini e cola a chave dela. A chave é testada antes de ser salva, fica criptografada no servidor e nunca volta para o aparelho. Sem chave, o assistente funciona no modo simples.
+- **APK para Android** gerado automaticamente pelo GitHub Actions a cada envio de código, além da versão web instalável (PWA). Modo escuro automático e layout pensado primeiro para o celular.
 - **Demonstração pública** sem expor dados reais: cada visitante ganha uma conta temporária que é apagada em 24 horas.
 
 ## Stack
@@ -38,8 +39,9 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | API | Node.js 22, TypeScript, Fastify 5, Zod, JWT, bcrypt, rate limit |
 | Banco | PostgreSQL 16 com SQL puro e migrações versionadas. Em desenvolvimento e nos testes roda em [PGlite](https://pglite.dev) (Postgres em WASM), sem instalar nada |
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
-| IA | API da Claude (Claude Haiku 5.5) com tool use: o modelo chama ferramentas da própria API para gravar, consultar e resumir |
-| Qualidade | Vitest (72 testes de API, interpretador de frases e assistente com modelo simulado), GitHub Actions com PostgreSQL 16 real |
+| Android | Capacitor 8, APK montado e publicado pelo GitHub Actions |
+| IA | Claude (Messages API), ChatGPT (Responses API) e Gemini (generateContent), com a chave de cada usuário, todos com chamada de ferramentas. Sem SDKs: um adaptador fino por provedor sobre `fetch` |
+| Qualidade | Vitest (84 testes de API, interpretador de frases, adaptadores das IAs e assistente com IA simulada), GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
@@ -50,8 +52,10 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Isolamento por usuário em toda consulta.** Todo `select`, `update` e `delete` filtra por `user_id`, e há teste garantindo que um usuário não lê nem apaga dado de outro, nem usa a categoria de outro.
 - **A IA não toca no banco.** O modelo só pode chamar cinco ferramentas (`registrar_lancamentos`, `corrigir_lancamento`, `excluir_lancamento`, `consultar_lancamentos`, `resumo_do_mes`). Quem valida valor, data e categoria e escreve no PostgreSQL é o código da API, sempre com o `user_id` de quem está logado. Ele recebe no prompt a data de hoje e as categorias do usuário, e o laço de ferramentas tem limite de rodadas.
 - **A IA conhece o usuário.** O prompt leva os hábitos de categoria dele (a "Padaria do Zé" que ele sempre lança em Lazer), os últimos lançamentos com id (para corrigir e apagar o certo) e um calendário dos últimos dez dias, para "sexta passada" nunca virar a data errada.
-- **Funciona sem chave.** Sem `ANTHROPIC_API_KEY`, o assistente cai num modo simples por regras que entende valores por extenso ("cinquenta reais e noventa centavos", "mil e duzentos", "2k"), datas relativas ("sexta passada", "dia 10", "12/09"), parcelamentos, vários itens numa frase e "apaga o último", e também aprende com o histórico de categorias. O app nunca fica sem chat.
-- **Custo sob controle.** Limite por hora para contas normais, limite por conta de demonstração e um teto diário para a demo pública, tudo configurável por variável de ambiente.
+- **Três IAs, uma interface.** Claude, ChatGPT e Gemini falam formatos diferentes de chamada de ferramentas. Cada um tem um adaptador pequeno que traduz para a mesma interface (`start` e `continue`), então o laço do assistente não sabe com qual IA está falando. No Gemini, o conteúdo do modelo volta intacto a cada rodada para preservar as *thought signatures*; no ChatGPT, as rodadas são encadeadas por `previous_response_id`.
+- **Chave do usuário guardada com cuidado.** AES-256-GCM com um segredo do servidor (`AI_KEY_SECRET`); a chave é validada listando os modelos do provedor (não gasta tokens) e só os quatro últimos caracteres voltam para a tela.
+- **Funciona sem chave.** Sem IA conectada, o assistente cai num modo simples por regras que entende valores por extenso ("cinquenta reais e noventa centavos", "mil e duzentos", "2k"), datas relativas ("sexta passada", "dia 10", "12/09"), parcelamentos, vários itens numa frase e "apaga o último", e também aprende com o histórico de categorias. O app nunca fica sem chat.
+- **Limite de uso.** Cada usuário tem um teto de mensagens por hora (`ASSISTANT_HOURLY_LIMIT`), que protege o servidor e a conta de IA dele contra laços.
 - **Importação idempotente com prévia.** O CSV é validado linha a linha antes de gravar, e lançamentos idênticos são pulados. Dá para importar o mesmo mês duas vezes sem bagunçar nada.
 
 ## Rodando localmente
@@ -67,7 +71,13 @@ npm run dev
 
 Abra `http://localhost:5173`. A API sobe em `http://localhost:3333` com um banco PGlite salvo em `api/.data/`.
 
-**Ligando a IA do assistente:** crie uma chave em [platform.claude.com](https://platform.claude.com) (*Settings, API keys*), copie `api/.env.example` para `api/.env` e preencha `ANTHROPIC_API_KEY`. Reinicie o `npm run dev`. O terminal mostra `assistente: IA (Claude)` quando ela está ativa. O modelo padrão é o Claude Haiku 5.5, o mais barato da Anthropic, e dá para trocar em `ASSISTANT_MODEL`.
+**Ligando a IA do assistente:** no app, vá em **Ajustes, Assistente de IA**, escolha a IA e cole a sua chave:
+
+| IA | Onde criar a chave | Modelo padrão | Custo |
+| --- | --- | --- | --- |
+| Gemini | [Google AI Studio](https://aistudio.google.com/apikey) | `gemini-3.8-flash` | Tem cota gratuita (no plano gratuito o Google pode usar as conversas para melhorar os produtos) |
+| Claude | [Console da Anthropic](https://platform.claude.com) | `claude-haiku-5-5` | Por uso, à parte da assinatura do Claude |
+| ChatGPT | [Plataforma da OpenAI](https://platform.openai.com/api-keys) | `gpt-6-luna` | Por uso; a assinatura do ChatGPT não inclui a API |
 
 Para usar um PostgreSQL de verdade: `docker compose up -d` e rode com `DATABASE_URL=postgres://saldo:saldo@localhost:5432/saldo npm run dev`.
 
@@ -82,11 +92,27 @@ npm run build     # build de produção
 ## Publicando de graça
 
 1. **Banco no [Neon](https://neon.tech):** crie um projeto e copie a connection string (`postgres://...?sslmode=require`).
-2. **API no [Render](https://render.com):** *New, Blueprint*, aponte para este repositório (ele lê o `render.yaml`). Preencha `DATABASE_URL` com a do Neon, `CORS_ORIGIN` com o endereço da Vercel e `ANTHROPIC_API_KEY` com a sua chave. As migrações rodam sozinhas ao iniciar.
+2. **API no [Render](https://render.com):** *New, Blueprint*, aponte para este repositório (ele lê o `render.yaml`). Preencha `DATABASE_URL` com a do Neon e `CORS_ORIGIN` com o endereço da Vercel. `JWT_SECRET` e `AI_KEY_SECRET` são gerados sozinhos. As migrações rodam sozinhas ao iniciar.
 3. **Front na [Vercel](https://vercel.com):** importe o repositório com *Root Directory* `web` e a variável `VITE_API_URL` apontando para a API do Render.
 4. No celular, abra o endereço da Vercel. No Android: menu do Chrome, *Instalar app*. No iPhone: Safari, *Compartilhar*, *Adicionar à Tela de Início*.
 
 > No plano gratuito do Render a API dorme depois de 15 minutos parada, então o primeiro acesso do dia pode levar uns 50 segundos.
+
+## APK para Android
+
+O workflow `.github/workflows/android.yml` monta o APK com Capacitor a cada envio para a `main` e publica em **Releases**, sempre no mesmo endereço:
+
+```
+https://github.com/AlanFMF/saldo/releases/download/apk/saldo.apk
+```
+
+1. No GitHub, em *Settings, Secrets and variables, Actions, Variables*, crie `SALDO_API_URL` com o endereço da API no Render (ex.: `https://saldo-api.onrender.com`). Sem ela, o app pede o endereço do servidor na tela de entrada.
+2. Rode o workflow (ele roda sozinho a cada push, ou em *Actions, APK Android, Run workflow*).
+3. No celular, abra o link acima, baixe `saldo.apk` e permita instalar apps dessa fonte quando o Android pedir.
+
+Todo APK sai assinado com a mesma chave de depuração (`web/android/app/saldo-debug.keystore`), então as versões novas instalam por cima da anterior. Para publicar na Play Store, gere uma chave própria e cadastre os segredos `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` e `ANDROID_KEY_PASSWORD`: o workflow passa a usá-la sozinho.
+
+Para gerar no próprio PC (precisa do Android Studio): `npm run build -w web`, depois `npx cap sync android` e `npx cap open android` dentro de `web/`.
 
 ## Trazendo a planilha do Google Sheets
 
@@ -108,8 +134,9 @@ Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorizatio
 | GET | `/api/summary/history?month=AAAA-MM&months=6` | Série mensal de entradas e saídas |
 | POST | `/api/import/csv` | Prévia (`dryRun: true`) ou importação do CSV |
 | GET | `/api/export.csv?year=AAAA` | CSV no formato da planilha |
-| POST | `/api/assistant/chat` | Mensagem para o assistente; devolve a resposta e os lançamentos criados |
-| GET | `/api/assistant/status` | Se o assistente está com IA ou no modo simples |
+| POST | `/api/assistant/chat` | Mensagem para o assistente; devolve a resposta e os lançamentos criados, corrigidos e excluídos |
+| GET | `/api/assistant/status` | Se o assistente está com IA (e qual) ou no modo simples |
+| GET, PUT, DELETE | `/api/assistant/settings` | Conectar, trocar ou desconectar a IA do usuário (a chave nunca é devolvida) |
 
 ## Próximos passos
 

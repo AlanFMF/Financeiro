@@ -122,7 +122,7 @@ a {
   display: none;
 }
 .content {
-  padding: 12px 16px calc(var(--tabbar-h) + 88px + env(safe-area-inset-bottom));
+  padding: 12px 16px calc(var(--tabbar-h) + 150px + env(safe-area-inset-bottom));
   padding-top: max(12px, env(safe-area-inset-top));
   max-width: 1120px;
   margin: 0 auto;
@@ -1362,4 +1362,49 @@ td {
     overflow: hidden;
     padding-top: 0;
   }
+}
+
+/* ---------- ajustes da IA ---------- */
+.ai-form {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.segmented.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+.segmented.three .seg[aria-checked='true'] {
+  color: var(--accent);
+}
+.note a {
+  color: var(--accent);
+  font-weight: 500;
+}
+.ai-status {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.ai-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--entrada);
+  transform: translateY(-1px);
+}
+.form-ok {
+  color: var(--entrada);
+  font-size: 0.875rem;
+}
+.link-btn.inline {
+  padding: 0;
+  font-size: inherit;
+}
+
+.server-field {
+  padding-top: 4px;
+}
+.server-field p {
+  overflow-wrap: anywhere;
 }
