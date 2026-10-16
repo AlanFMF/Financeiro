@@ -63,8 +63,8 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 Precisa do Node.js 20 ou mais novo.
 
 ```bash
-git clone https://github.com/AlanFMF/saldo.git
-cd saldo
+git clone https://github.com/AlanFMF/Financeiro.git
+cd Financeiro
 npm install
 npm run dev
 ```
@@ -103,7 +103,7 @@ npm run build     # build de produção
 O workflow `.github/workflows/android.yml` monta o APK com Capacitor a cada envio para a `main` e publica em **Releases**, sempre no mesmo endereço:
 
 ```
-https://github.com/AlanFMF/saldo/releases/download/apk/saldo.apk
+https://github.com/AlanFMF/Financeiro/releases/download/apk/saldo.apk
 ```
 
 1. No GitHub, em *Settings, Secrets and variables, Actions, Variables*, crie `SALDO_API_URL` com o endereço da API no Render (ex.: `https://saldo-api.onrender.com`). Sem ela, o app pede o endereço do servidor na tela de entrada.

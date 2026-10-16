@@ -45,8 +45,8 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 ## Running locally
 
 ```bash
-git clone https://github.com/AlanFMF/saldo.git
-cd saldo
+git clone https://github.com/AlanFMF/Financeiro.git
+cd Financeiro
 npm install
 npm run dev   # web on :5173, API on :3333 with an embedded PGlite database
 npm test
