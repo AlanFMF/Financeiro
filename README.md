@@ -105,7 +105,7 @@ O workflow `.github/workflows/android.yml` monta o APK com Capacitor a cada envi
 **[alanfmf.github.io/Financeiro](https://alanfmf.github.io/Financeiro/)** (o arquivo direto fica em `alanfmf.github.io/Financeiro/saldo.apk`)
 
 1. Na primeira vez, em *Settings, Pages*, escolha *Source: GitHub Actions*.
-2. Em *Settings, Secrets and variables, Actions, Variables*, crie `SALDO_API_URL` com o endereço da API no Render (ex.: `https://saldo-api.onrender.com`). Sem ela, o app pede o endereço do servidor na tela de entrada.
+2. O APK já sai apontando para a API em `https://saldo-api-g1ae.onrender.com`. Para usar outro servidor, crie `SALDO_API_URL` em *Settings, Secrets and variables, Actions, Variables*; dentro do app também dá para trocar em *Servidor, Alterar*, na tela de entrada.
 3. O workflow roda sozinho a cada push, ou em *Actions, APK Android, Run workflow*.
 4. No celular, abra o link, toque em *Baixar para Android* e permita instalar apps dessa fonte quando o Android pedir.
 

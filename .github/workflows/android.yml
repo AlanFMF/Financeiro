@@ -38,9 +38,9 @@ jobs:
 
       - name: Build do app web
         env:
-          # Endereço da API publicada (Settings, Secrets and variables, Actions, Variables).
-          # Sem ele, o app pede o endereço do servidor na tela de entrada.
-          VITE_API_URL: ${{ vars.SALDO_API_URL }}
+          # Endereço da API publicada no Render. Para trocar sem mexer no código, crie a variável
+          # SALDO_API_URL em Settings, Secrets and variables, Actions, Variables.
+          VITE_API_URL: ${{ vars.SALDO_API_URL || 'https://saldo-api-g1ae.onrender.com' }}
         run: npm run build -w web
 
       - name: Copia o app web para o projeto Android
