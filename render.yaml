@@ -18,7 +18,8 @@ services:
         generateValue: true
       - key: DATABASE_URL
         sync: false
+      # Só o site do GitHub Pages chama a API pelo navegador (o APK entra sempre, pelo código).
       - key: CORS_ORIGIN
-        sync: false
+        value: https://alanfmf.github.io
       - key: AI_KEY_SECRET
         generateValue: true
