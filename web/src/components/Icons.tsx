@@ -55,7 +55,24 @@ export const IconClose = (p: SVGProps<SVGSVGElement>) => (
     <path d="M6 6l12 12M18 6L6 18" />
   </svg>
 );
-export const IconRepeat = (p: SVGProps<SVGSVGElement>) => (
+export const IconChat = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M5 18.5V6a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H8.5L5 18.5z" />
+    <path d="M9 9h6M9 12h4" />
+  </svg>
+);
+export const IconMic = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21" />
+  </svg>
+);
+export const IconSend = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base({ strokeWidth: 2, ...p })}>
+    <path d="M12 19V5M6 11l6-6 6 6" />
+  </svg>
+);
+export const IconRepeat =(p: SVGProps<SVGSVGElement>) => (
   <svg {...base({ width: 14, height: 14, ...p })}>
     <path d="M17 2l3 3-3 3" />
     <path d="M4 11V9a4 4 0 014-4h12M7 22l-3-3 3-3" />

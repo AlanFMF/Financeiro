@@ -1,5 +1,13 @@
+// Lê api/.env se existir (Node 20.12+). Em produção as variáveis vêm do painel do Render.
+try {
+  process.loadEnvFile('.env');
+} catch {
+  /* sem .env, segue com as variáveis do ambiente */
+}
+
 import { createPgDb, createPgliteDb, migrate } from './db.js';
 import { buildApp } from './server.js';
+import { createClaudeLlm } from './assistant/route.js';
 
 const port = Number(process.env.PORT ?? 3333);
 const databaseUrl = process.env.DATABASE_URL;
@@ -15,9 +23,26 @@ if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
 const db = databaseUrl ? createPgDb(databaseUrl) : await createPgliteDb(process.env.PGLITE_DIR ?? '.data/pglite');
 const applied = await migrate(db);
 
-const app = await buildApp({ db, jwtSecret, corsOrigin: corsOrigin ?? true, logger: true });
+const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+const num = (v: string | undefined, fallback: number) => (v && Number.isFinite(Number(v)) ? Number(v) : fallback);
+
+const app = await buildApp({
+  db,
+  jwtSecret,
+  corsOrigin: corsOrigin ?? true,
+  logger: true,
+  assistant: {
+    llm: apiKey ? createClaudeLlm(apiKey) : null,
+    model: process.env.ASSISTANT_MODEL ?? 'claude-haiku-5-5',
+    timeZone: process.env.APP_TIMEZONE ?? 'America/Sao_Paulo',
+    hourlyLimit: num(process.env.ASSISTANT_HOURLY_LIMIT, 60),
+    demoLimit: num(process.env.ASSISTANT_DEMO_LIMIT, 15),
+    demoDailyLimit: num(process.env.ASSISTANT_DEMO_DAILY_LIMIT, 300)
+  }
+});
 if (applied.length) app.log.info({ applied }, 'migrações aplicadas');
 app.log.info(databaseUrl ? 'banco: PostgreSQL' : 'banco: PGlite local (.data/pglite)');
+app.log.info(apiKey ? 'assistente: IA (Claude)' : 'assistente: modo simples (defina ANTHROPIC_API_KEY para usar a IA)');
 
 await app.listen({ port, host: '0.0.0.0' });
 

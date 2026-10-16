@@ -13,10 +13,15 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
   <img src="docs/mobile-lancamento.png" width="240" alt="Formulário de novo lançamento com valor, categoria e data">
   <img src="docs/mobile-escuro.png" width="240" alt="Tela do mês no modo escuro">
 </p>
-<img src="docs/desktop-mes.png" width="760" alt="Tela do mês no computador, com histórico de seis meses e lista de lançamentos">
+<img src="docs/desktop-assistente.png" width="760" alt="Tela do mês no computador com o assistente aberto no canto, depois de lançar um freela e a conta de internet">
+
+<p>
+  <img src="docs/mobile-assistente.png" width="240" alt="Assistente no celular lançando mercado e gasolina a partir de uma frase">
+</p>
 
 ## O que ele faz
 
+- **Assistente com IA no canto da tela**: escreva ou fale "gastei 45,90 no mercado e 120 de gasolina ontem" e ele lança os dois na categoria certa, com a data certa. Cada lançamento aparece no chat com **Editar** e **Desfazer**. Também responde perguntas como "quanto gastei com alimentação este mês?".
 - **Saldo do mês em destaque**, com uma régua que mostra quanto do que entrou já saiu e a comparação com o mês anterior.
 - **Lançamento rápido pelo celular**: teclado numérico, categorias em botões, data já preenchida. O atalho do ícone instalado abre direto o formulário.
 - **Gastos fixos e parcelas**: marque um lançamento como fixo e copie todos para o mês seguinte com um toque. Descrições como `Financiamento (10/48)` avançam sozinhas para `(11/48)`, e a parcela final não é copiada.
@@ -33,7 +38,8 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | API | Node.js 22, TypeScript, Fastify 5, Zod, JWT, bcrypt, rate limit |
 | Banco | PostgreSQL 16 com SQL puro e migrações versionadas. Em desenvolvimento e nos testes roda em [PGlite](https://pglite.dev) (Postgres em WASM), sem instalar nada |
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
-| Qualidade | Vitest (31 testes de API e de regras), GitHub Actions com PostgreSQL 16 real |
+| IA | API da Claude (Claude Haiku 5.5) com tool use: o modelo chama ferramentas da própria API para gravar, consultar e resumir |
+| Qualidade | Vitest (45 testes de API, regras e assistente com modelo simulado), GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
@@ -42,6 +48,9 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **SQL escrito à mão em vez de ORM.** Os relatórios usam `sum(...) filter (where ...)`, `generate_series` para meses sem lançamento e `date_trunc`. Fica legível e mostra o que o banco está fazendo.
 - **Uma interface `Db`, dois motores.** A mesma API roda em PostgreSQL (produção) ou PGlite (local e testes). Quem clona o repositório roda `npm run dev` e já tem um Postgres funcionando.
 - **Isolamento por usuário em toda consulta.** Todo `select`, `update` e `delete` filtra por `user_id`, e há teste garantindo que um usuário não lê nem apaga dado de outro, nem usa a categoria de outro.
+- **A IA não toca no banco.** O modelo só pode chamar três ferramentas (`registrar_lancamentos`, `consultar_lancamentos`, `resumo_do_mes`). Quem valida valor, data e categoria e escreve no PostgreSQL é o código da API, sempre com o `user_id` de quem está logado. Ele recebe no prompt a data de hoje e as categorias do usuário, e o laço de ferramentas tem limite de rodadas.
+- **Funciona sem chave.** Sem `ANTHROPIC_API_KEY`, o assistente cai num modo simples por regras que entende frases como "paguei 150 de condomínio e 89,90 de internet". O app nunca fica sem chat.
+- **Custo sob controle.** Limite por hora para contas normais, limite por conta de demonstração e um teto diário para a demo pública, tudo configurável por variável de ambiente.
 - **Importação idempotente com prévia.** O CSV é validado linha a linha antes de gravar, e lançamentos idênticos são pulados. Dá para importar o mesmo mês duas vezes sem bagunçar nada.
 
 ## Rodando localmente
@@ -57,6 +66,8 @@ npm run dev
 
 Abra `http://localhost:5173`. A API sobe em `http://localhost:3333` com um banco PGlite salvo em `api/.data/`.
 
+**Ligando a IA do assistente:** crie uma chave em [platform.claude.com](https://platform.claude.com) (*Settings, API keys*), copie `api/.env.example` para `api/.env` e preencha `ANTHROPIC_API_KEY`. Reinicie o `npm run dev`. O terminal mostra `assistente: IA (Claude)` quando ela está ativa. O modelo padrão é o Claude Haiku 5.5, o mais barato da Anthropic, e dá para trocar em `ASSISTANT_MODEL`.
+
 Para usar um PostgreSQL de verdade: `docker compose up -d` e rode com `DATABASE_URL=postgres://saldo:saldo@localhost:5432/saldo npm run dev`.
 
 Para abrir no celular na mesma rede Wi-Fi, use o endereço `Network` que o Vite mostra no terminal.
@@ -70,7 +81,7 @@ npm run build     # build de produção
 ## Publicando de graça
 
 1. **Banco no [Neon](https://neon.tech):** crie um projeto e copie a connection string (`postgres://...?sslmode=require`).
-2. **API no [Render](https://render.com):** *New, Blueprint*, aponte para este repositório (ele lê o `render.yaml`). Preencha `DATABASE_URL` com a do Neon e `CORS_ORIGIN` com o endereço da Vercel. As migrações rodam sozinhas ao iniciar.
+2. **API no [Render](https://render.com):** *New, Blueprint*, aponte para este repositório (ele lê o `render.yaml`). Preencha `DATABASE_URL` com a do Neon, `CORS_ORIGIN` com o endereço da Vercel e `ANTHROPIC_API_KEY` com a sua chave. As migrações rodam sozinhas ao iniciar.
 3. **Front na [Vercel](https://vercel.com):** importe o repositório com *Root Directory* `web` e a variável `VITE_API_URL` apontando para a API do Render.
 4. No celular, abra o endereço da Vercel. No Android: menu do Chrome, *Instalar app*. No iPhone: Safari, *Compartilhar*, *Adicionar à Tela de Início*.
 
@@ -96,6 +107,8 @@ Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorizatio
 | GET | `/api/summary/history?month=AAAA-MM&months=6` | Série mensal de entradas e saídas |
 | POST | `/api/import/csv` | Prévia (`dryRun: true`) ou importação do CSV |
 | GET | `/api/export.csv?year=AAAA` | CSV no formato da planilha |
+| POST | `/api/assistant/chat` | Mensagem para o assistente; devolve a resposta e os lançamentos criados |
+| GET | `/api/assistant/status` | Se o assistente está com IA ou no modo simples |
 
 ## Próximos passos
 

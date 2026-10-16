@@ -16,6 +16,7 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 
 ## Features
 
+- AI assistant in the corner: type or speak "spent 45.90 at the market and 120 on gas yesterday" (in Portuguese) and it books both entries in the right categories and dates, each with Edit and Undo. It also answers questions about your spending. Built on the Claude API with tool use; the model can only call three server-side tools, and the API validates and writes everything scoped to the logged-in user. Without an API key it falls back to a rule-based parser.
 - Monthly balance front and centre, with a bar showing how much of the income has already been spent and a comparison with last month.
 - Fast mobile entry: numeric keypad, category chips, pre-filled date, and a home-screen shortcut straight to the form.
 - Recurring items and installments: copy fixed entries to the next month in one tap; `Loan (10/48)` becomes `(11/48)` automatically and the final installment is not copied again.
@@ -29,7 +30,8 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 - **API:** Node.js 22, TypeScript, Fastify 5, Zod, JWT, bcrypt, rate limiting.
 - **Database:** PostgreSQL 16 with hand-written SQL and versioned migrations. Local development and tests run on PGlite (Postgres compiled to WASM), so nothing needs installing.
 - **Frontend:** React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa.
-- **Quality:** Vitest (31 tests), GitHub Actions against a real PostgreSQL 16.
+- **AI:** Claude API (Claude Haiku 5.5) with tool use, usage limits per user and for the public demo.
+- **Quality:** Vitest (45 tests, including the assistant against a scripted fake model), GitHub Actions against a real PostgreSQL 16.
 - **Hosting:** Vercel (frontend), Render (API), Neon (database), all on free tiers.
 
 ## Design decisions

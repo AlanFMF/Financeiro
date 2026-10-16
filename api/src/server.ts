@@ -9,6 +9,7 @@ import { categoryRoutes } from './routes/categories.js';
 import { transactionRoutes } from './routes/transactions.js';
 import { summaryRoutes } from './routes/summary.js';
 import { importExportRoutes } from './routes/import-export.js';
+import { assistantRoutes, type AssistantOptions } from './assistant/route.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -30,6 +31,7 @@ export interface AppOptions {
   corsOrigin?: string[] | boolean;
   logger?: boolean;
   rateLimit?: boolean;
+  assistant?: Partial<AssistantOptions>;
 }
 
 export class HttpError extends Error {
@@ -61,6 +63,7 @@ export async function buildApp(opts: AppOptions) {
         issues: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message }))
       });
     }
+    if (err instanceof HttpError) return reply.code(err.statusCode).send({ error: err.message });
     const status = (err as { statusCode?: number }).statusCode;
     if (status && status < 500) return reply.code(status).send({ error: (err as Error).message });
     req.log.error(err);
@@ -77,6 +80,16 @@ export async function buildApp(opts: AppOptions) {
   await app.register(transactionRoutes, { prefix: '/api/transactions' });
   await app.register(summaryRoutes, { prefix: '/api/summary' });
   await app.register(importExportRoutes, { prefix: '/api' });
+  await app.register(assistantRoutes, {
+    prefix: '/api/assistant',
+    llm: null,
+    model: 'claude-haiku-5-5',
+    timeZone: 'America/Sao_Paulo',
+    hourlyLimit: 60,
+    demoLimit: 15,
+    demoDailyLimit: 300,
+    ...opts.assistant
+  });
 
   return app;
 }

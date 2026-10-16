@@ -4,6 +4,7 @@ import type { Transaction } from '../api';
 import { useAuth } from '../auth';
 import { IconImport, IconList, IconMonth, IconPlus, IconSettings } from './Icons';
 import { TransactionSheet } from './TransactionSheet';
+import { AssistantChat } from './AssistantChat';
 
 interface EditorState {
   open: (tx?: Transaction) => void;
@@ -24,6 +25,7 @@ export function Layout() {
   const [params, setParams] = useSearchParams();
   const [editing, setEditing] = useState<Transaction | null | undefined>(undefined);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
 
   // Atalho do ícone instalado: "/?novo=1" já abre o formulário.
   useEffect(() => {
@@ -45,7 +47,7 @@ export function Layout() {
 
   return (
     <EditorContext.Provider value={editor}>
-      <div className="shell">
+      <div className="shell" data-chat={chatOpen}>
         <aside className="sidebar">
           <div className="brand">
             <img src="/icon.svg" alt="" width={32} height={32} />
@@ -87,6 +89,8 @@ export function Layout() {
           ))}
         </nav>
       </div>
+
+      <AssistantChat open={chatOpen} onOpenChange={setChatOpen} />
 
       {editing !== undefined && (
         <TransactionSheet
