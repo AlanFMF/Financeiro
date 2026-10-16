@@ -3,8 +3,8 @@ services:
     name: saldo-api
     runtime: node
     plan: free
-    # Mesma região do banco no Neon (AWS us-east-2, Ohio): cada consulta fica rápida.
-    region: ohio
+    # Mesma região do banco no Neon (AWS us-east-1, Virginia), a mais próxima do Brasil entre as do Render.
+    region: virginia
     buildCommand: npm ci && npm run build -w api
     startCommand: npm start -w api
     healthCheckPath: /api/health
