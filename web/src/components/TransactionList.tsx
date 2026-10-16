@@ -29,6 +29,7 @@ export function TransactionList({ items, empty }: { items: Transaction[]; empty:
                       <span className="tx-desc">{t.description || t.categoryName}</span>
                       <span className="tx-cat">
                         {t.categoryName}
+                        {t.source && <span className="bank-tag">{t.source}</span>}
                         {t.isFixed && (
                           <span className="fixed" title="Repete todo mês">
                             <IconRepeat /> fixo

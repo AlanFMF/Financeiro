@@ -25,7 +25,7 @@ const listQuery = z.object({
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
 export const TX_SELECT = `select t.id, to_char(t.date, 'YYYY-MM-DD') as date, t.description,
-  t.amount_cents as "amountCents", t.is_fixed as "isFixed",
+  t.amount_cents as "amountCents", t.is_fixed as "isFixed", t.source,
   c.id as "categoryId", c.name as "categoryName", c.kind, c.color
   from transactions t join categories c on c.id = t.category_id`;
 

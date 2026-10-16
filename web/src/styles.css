@@ -1423,3 +1423,46 @@ td {
 .server-field p {
   overflow-wrap: anywhere;
 }
+
+/* ---------- sincronização com o banco ---------- */
+.token-box {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  grid-template-columns: minmax(0, 1fr);
+}
+.token-box code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+  background: var(--bg);
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  user-select: all;
+}
+.token-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.token-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.token-list span {
+  display: grid;
+}
+.bank-tag {
+  font-size: 0.72rem;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--muted);
+  white-space: nowrap;
+}

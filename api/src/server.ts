@@ -12,6 +12,7 @@ import { importExportRoutes } from './routes/import-export.js';
 import { assistantRoutes, type AssistantOptions } from './assistant/route.js';
 import { createProviderSession, verifyApiKey } from './assistant/providers.js';
 import { createSecretBox } from './lib/secret.js';
+import { syncRoutes, tokenRoutes, hashToken, TOKEN_ROUTES } from './routes/sync.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -53,6 +54,19 @@ export async function buildApp(opts: AppOptions) {
   await app.register(rateLimit, { global: false });
 
   app.decorate('authenticate', async (req: FastifyRequest, reply: FastifyReply) => {
+    // Chave de sincronização (tarefa agendada): só pode chamar as rotas de /api/sync.
+    const header = req.headers.authorization ?? '';
+    if (header.startsWith('Bearer saldo_')) {
+      const { rows } = await opts.db.query<{ user_id: number }>(
+        'update api_tokens set last_used_at = now() where token_hash = $1 returning user_id',
+        [hashToken(header.slice('Bearer '.length).trim())]
+      );
+      if (!rows[0]) return reply.code(401).send({ error: 'Chave de sincronização inválida ou revogada.' });
+      const route = `${req.method} ${req.routeOptions.url ?? req.url.split('?')[0]}`;
+      if (!TOKEN_ROUTES.has(route)) return reply.code(403).send({ error: 'Esta chave só pode enviar lançamentos do banco.' });
+      req.user = { sub: rows[0].user_id };
+      return;
+    }
     try {
       await req.jwtVerify();
     } catch {
@@ -84,6 +98,8 @@ export async function buildApp(opts: AppOptions) {
   await app.register(transactionRoutes, { prefix: '/api/transactions' });
   await app.register(summaryRoutes, { prefix: '/api/summary' });
   await app.register(importExportRoutes, { prefix: '/api' });
+  await app.register(tokenRoutes, { prefix: '/api/tokens' });
+  await app.register(syncRoutes, { prefix: '/api/sync' });
   await app.register(assistantRoutes, {
     prefix: '/api/assistant',
     secretBox: createSecretBox(opts.aiKeySecret ?? opts.jwtSecret),

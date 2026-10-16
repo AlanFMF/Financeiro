@@ -125,6 +125,8 @@ export interface Transaction {
   description: string;
   amountCents: number;
   isFixed: boolean;
+  /** "Nubank cartão", "Nubank conta"... quando veio da sincronização com o banco. */
+  source?: string | null;
   categoryId: number;
   categoryName: string;
   kind: Kind;

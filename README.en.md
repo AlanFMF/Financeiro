@@ -22,6 +22,7 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 - Recurring items and installments: copy fixed entries to the next month in one tap; `Loan (10/48)` becomes `(11/48)` automatically and the final installment is not copied again.
 - Spending by category, six-month history, search and filters.
 - CSV import with preview, per-line validation, automatic category creation and duplicate detection; CSV export in the spreadsheet format.
+- Daily bank sync: a scheduled Claude task reads the checking account and credit card through Open Finance and posts them with a least-privilege token. The server cleans statement descriptions, categorizes by the user's habits and the bank's category, and deduplicates against manual entries, pending-to-posted id changes and card bill payments.
 - Android APK built and published by GitHub Actions on every push (Capacitor 8), plus an installable PWA. Automatic dark mode, mobile-first layout.
 - Public demo with no real data: each visitor gets a throwaway account deleted after 24 hours.
 
@@ -31,7 +32,7 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 - **Database:** PostgreSQL 16 with hand-written SQL and versioned migrations. Local development and tests run on PGlite (Postgres compiled to WASM), so nothing needs installing.
 - **Frontend:** React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa.
 - **AI:** bring-your-own-key for Claude (Messages API), ChatGPT (Responses API) and Gemini (generateContent), each behind a thin `fetch` adapter with a shared tool-calling interface; per-user hourly limits.
-- **Quality:** Vitest (84 tests, including the sentence parser, the three AI adapters against recorded request/response shapes, and the assistant against a scripted fake AI), GitHub Actions against a real PostgreSQL 16.
+- **Quality:** Vitest (109 tests, including the sentence parser, the three AI adapters against recorded request/response shapes, and the assistant against a scripted fake AI), GitHub Actions against a real PostgreSQL 16.
 - **Hosting:** Vercel (frontend), Render (API), Neon (database), all on free tiers.
 
 ## Design decisions

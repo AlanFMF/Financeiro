@@ -63,11 +63,11 @@ const KEYWORDS: [RegExp, string][] = [
   [/aluguel|condominio|\bluz\b|energia|\bagua\b|\bgas\b|iptu|cemig|reforma|\bmove(l|is)\b/, 'Moradia'],
   [/internet|celular|telefone|plano de dados|recarga|\bvivo\b|\bclaro\b|\btim\b|\boi\b|algar/, 'Contas'],
   [
-    /mercado|supermercado|padaria|feira|restaurante|lanche|ifood|almoc|almoco|janta|\bcafes?\b|pizza|acougue|hortifruti|sorvete|hamburguer|marmita|delivery|drive|acai|refri|cerveja|\bpao\b/,
+    /mercado|supermercado|padaria|feira|restaurante|lanche|ifood|\bifd\b|almoc|almoco|janta|\bcafes?\b|pizza|acougue|hortifruti|sorvete|hamburguer|marmita|delivery|drive|acai|refri|cerveja|\bpao\b/,
     'Alimentação'
   ],
   [
-    /gasolina|combustivel|etanol|alcool|diesel|abasteci|posto|uber|\b99\b|taxi|onibus|metro|estacionamento|pedagio|ipva|licenciamento|seguro do carro|seguro carro|oficina|mecanico|pneu|financiamento|lava.?jato|multa/,
+    /gasolina|combustivel|etanol|alcool|diesel|abasteci|posto|\buber\b|\b99\b|\bhinova\b|itucar|protecao veicular|taxi|onibus|metro|estacionamento|pedagio|ipva|licenciamento|seguro do carro|seguro carro|oficina|mecanico|pneu|financiamento|lava.?jato|multa/,
     'Transporte'
   ],
   [/farmacia|remedio|medico|dentista|exame|consulta|plano de saude|hospital|psicolog|terapia|otica|oculos/, 'Saúde'],
@@ -349,11 +349,16 @@ export function categoryFromHistory(description: string, kind: Kind | null, hist
   );
 }
 
-function categoryFromKeywords(haystack: string, kind: Kind) {
+/** Categoria pela palavra-chave, ou null se nenhuma bater. */
+export function keywordCategory(haystack: string, kind: Kind): string | null {
   for (const [re, cat] of KEYWORDS) {
     if (re.test(haystack) && INCOME_CATEGORIES.has(cat) === (kind === 'entrada')) return cat;
   }
-  return kind === 'entrada' ? 'Outras receitas' : 'Imprevistos/Outros';
+  return null;
+}
+
+function categoryFromKeywords(haystack: string, kind: Kind) {
+  return keywordCategory(haystack, kind) ?? (kind === 'entrada' ? 'Outras receitas' : 'Imprevistos/Outros');
 }
 
 // ---------------------------------------------------------------- frase inteira
