@@ -48,3 +48,27 @@ jobs:
             -d '{"name":"CI","scope":"mcp"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
           curl -sf -XPOST localhost:3333/mcp -H "authorization: Bearer $MCP_KEY" -H 'content-type: application/json' \
             -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | grep -q registrar_lancamentos
+
+  e2e:
+    name: Ponta a ponta (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Chromium do Playwright
+        run: npm exec -w web -- playwright install --with-deps chromium
+      - name: Testes no celular emulado
+        run: npm run e2e -w web
+        env:
+          CI: 'true'
+      - name: Relatório quando falhar
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/playwright-report
+          retention-days: 7

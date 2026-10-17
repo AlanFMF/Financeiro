@@ -68,9 +68,11 @@ function fromPgliteTx(tx: PGliteTx): Db {
   };
 }
 
+/** Sem `dataDir` (ou com "memory://"), o banco fica só na memória: usado nos testes. */
 export async function createPgliteDb(dataDir?: string): Promise<Db> {
-  if (dataDir) await mkdir(dataDir, { recursive: true });
-  const lite = new PGlite(dataDir);
+  const inMemory = !dataDir || dataDir.startsWith('memory://');
+  if (!inMemory) await mkdir(dataDir, { recursive: true });
+  const lite = new PGlite(inMemory ? undefined : dataDir);
   await lite.waitReady;
   return {
     query: async (sql, params) => lite.query(sql, params as unknown[]) as never,

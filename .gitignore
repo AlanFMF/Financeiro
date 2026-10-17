@@ -7,3 +7,5 @@ dev-dist/
 *.log
 .DS_Store
 dist-pages/
+playwright-report/
+test-results/
