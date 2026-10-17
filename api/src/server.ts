@@ -15,11 +15,14 @@ import { createProviderSession, verifyApiKey } from './assistant/providers.js';
 import { createSecretBox } from './lib/secret.js';
 import { syncRoutes, tokenRoutes, hashToken, TOKEN_ROUTES } from './routes/sync.js';
 import { mcpRoutes } from './mcp/route.js';
+import { docsHtml, openapi } from './openapi.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
     db: Db;
     authenticate: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    /** "MÉTODO /caminho" de cada rota registrada (para o teste da documentação). */
+    routeIndex: Set<string>;
   }
 }
 
@@ -59,6 +62,10 @@ export async function buildApp(opts: AppOptions) {
   const app = Fastify({ logger, bodyLimit: 3 * 1024 * 1024 });
 
   app.decorate('db', opts.db);
+  app.decorate('routeIndex', new Set<string>());
+  app.addHook('onRoute', (r) => {
+    for (const m of [r.method].flat()) if (m !== 'HEAD' && m !== 'OPTIONS') app.routeIndex.add(`${m} ${r.url}`);
+  });
   await app.register(cors, { origin: opts.corsOrigin ?? true });
   await app.register(jwt, { secret: opts.jwtSecret, sign: { expiresIn: '30d' } });
   await app.register(rateLimit, { global: false });
@@ -99,6 +106,10 @@ export async function buildApp(opts: AppOptions) {
     req.log.error(err);
     return reply.code(500).send({ error: 'Erro interno. Tente de novo em instantes.' });
   });
+
+  // Documentação da API: /docs (Swagger UI) lendo /openapi.json.
+  app.get('/openapi.json', async () => openapi);
+  app.get('/docs', async (_req, reply) => reply.type('text/html; charset=utf-8').send(docsHtml));
 
   /** Para o despertador do GitHub Actions: mantém o servidor acordado sem acordar o banco. */
   app.get('/api/ping', async () => ({ ok: true }));
