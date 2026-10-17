@@ -25,7 +25,21 @@ const HINTS: Record<string, string> = {
 
 const reais = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-function calendar(today: string) {
+/** Como interpretar valores, datas, parcelas e casos especiais. Vale para o chat do app e para o conector do Claude. */
+export const UNDERSTANDING = `- Valores: "45" = R$ 45,00; "45,90" ou "45 e 90" = R$ 45,90; "1.200", "1,2 mil", "mil e duzentos" e "1.2k" = R$ 1.200,00; "50 conto", "50 pila" = R$ 50,00.
+- Valor aproximado ("uns 50", "quase 100"): grave o número dito e diga que usou esse valor.
+- Datas: use o calendário abaixo para "ontem", "anteontem", "sexta", "sexta passada", "segunda retrasada". "Dia 10" é o dia 10 deste mês, ou do mês passado se ainda não chegou. Sem data, use hoje. Nunca grave data no futuro sem o usuário dizer.
+- Forma de pagamento ("no pix", "no cartão", "no débito") não é categoria nem descrição.
+- Uma compra que mistura coisas ("mercado deu 230, mas 40 foi ração") vira itens separados: R$ 190,00 em Alimentação e R$ 40,00 em Pet.
+- Conta dividida ("jantar de 120 dividido por 3", "paguei metade de 90"): grave só a parte do usuário e diga a conta que fez.
+- Parcelado ("tênis de 600 em 6x", "10x de 89,90"): grave só a parcela deste mês, com "(1/6)" no fim da descrição e fixo=true. Diga que o botão "Copiar fixos" avança a parcela nos próximos meses.
+- Parcela de algo antigo ("paguei a parcela 5 de 12 do notebook, 350"): descrição "Notebook (5/12)", fixo=true.
+- Fixo=true também quando ele disser que se repete todo mês.
+- Pagamento de fatura do cartão de crédito: antes de gravar, pergunte se as compras do cartão já foram lançadas uma a uma, para não contar o mesmo gasto duas vezes.
+- Transferência entre contas do próprio usuário não é gasto nem recebimento: diga isso e não grave.
+- Se faltar o valor, pergunte. Nunca invente valores. Se faltar só a categoria, escolha a mais provável.`;
+
+export function calendar(today: string) {
   const lines: string[] = [];
   for (let i = 0; i < 10; i++) {
     const d = new Date(`${today}T12:00:00Z`);
@@ -43,19 +57,23 @@ export interface PromptContext {
   recent: CreatedTransaction[];
 }
 
-export function buildSystemPrompt({ categories, today, history, recent }: PromptContext) {
-  const list = (kind: 'entrada' | 'saida') =>
-    categories
-      .filter((c) => c.kind === kind)
-      .map((c) => `- ${c.name}${HINTS[c.name] ? ` (${HINTS[c.name]})` : ''}`)
-      .join('\n');
+export const categoryLines = (categories: CategoryRow[], kind: 'entrada' | 'saida') =>
+  categories
+    .filter((c) => c.kind === kind)
+    .map((c) => `- ${c.name}${HINTS[c.name] ? ` (${HINTS[c.name]})` : ''}`)
+    .join('\n');
 
-  const habits = history.length
+export const habitLines = (history: HistoryHint[]) =>
+  history.length
     ? history
         .slice(0, 40)
         .map((h) => `- "${h.description}" → ${h.category}`)
         .join('\n')
     : '(ainda não há histórico)';
+
+export function buildSystemPrompt({ categories, today, history, recent }: PromptContext) {
+  const list = (kind: 'entrada' | 'saida') => categoryLines(categories, kind);
+  const habits = habitLines(history);
 
   const recentLines = recent.length
     ? recent
@@ -73,18 +91,7 @@ export function buildSystemPrompt({ categories, today, history, recent }: Prompt
 5. Metas de gasto: para "quanto ainda posso gastar em X?" ou "como estão minhas metas?", use consultar_metas. Para "quero gastar no máximo 800 com mercado", use definir_meta. Os avisos de 80% e 100% da meta o app mostra sozinho depois de cada lançamento: não precisa repeti-los.
 
 # Como entender o que ele diz
-- Valores: "45" = R$ 45,00; "45,90" ou "45 e 90" = R$ 45,90; "1.200", "1,2 mil", "mil e duzentos" e "1.2k" = R$ 1.200,00; "50 conto", "50 pila" = R$ 50,00.
-- Valor aproximado ("uns 50", "quase 100"): grave o número dito e diga que usou esse valor.
-- Datas: use o calendário abaixo para "ontem", "anteontem", "sexta", "sexta passada", "segunda retrasada". "Dia 10" é o dia 10 deste mês, ou do mês passado se ainda não chegou. Sem data, use hoje. Nunca grave data no futuro sem o usuário dizer.
-- Forma de pagamento ("no pix", "no cartão", "no débito") não é categoria nem descrição.
-- Uma compra que mistura coisas ("mercado deu 230, mas 40 foi ração") vira itens separados: R$ 190,00 em Alimentação e R$ 40,00 em Pet.
-- Conta dividida ("jantar de 120 dividido por 3", "paguei metade de 90"): grave só a parte do usuário e diga a conta que fez.
-- Parcelado ("tênis de 600 em 6x", "10x de 89,90"): grave só a parcela deste mês, com "(1/6)" no fim da descrição e fixo=true. Diga que o botão "Copiar fixos" avança a parcela nos próximos meses.
-- Parcela de algo antigo ("paguei a parcela 5 de 12 do notebook, 350"): descrição "Notebook (5/12)", fixo=true.
-- Fixo=true também quando ele disser que se repete todo mês.
-- Pagamento de fatura do cartão de crédito: antes de gravar, pergunte se as compras do cartão já foram lançadas uma a uma, para não contar o mesmo gasto duas vezes.
-- Transferência entre contas do próprio usuário não é gasto nem recebimento: diga isso e não grave.
-- Se faltar o valor, pergunte. Nunca invente valores. Se faltar só a categoria, escolha a mais provável.
+${UNDERSTANDING}
 
 # Categorias
 Escolha sempre uma destas, respeitando o tipo. Se o hábito do usuário (abaixo) indicar outra categoria para a mesma coisa, siga o hábito.

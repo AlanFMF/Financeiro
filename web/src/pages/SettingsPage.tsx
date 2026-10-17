@@ -7,6 +7,7 @@ import { useEditor } from '../components/Layout';
 import { AiSettings } from '../components/AiSettings';
 import { SyncSettings } from '../components/SyncSettings';
 import { BudgetSettings } from '../components/Budgets';
+import { ClaudeConnector } from '../components/ClaudeConnector';
 import { useLocation } from 'react-router-dom';
 
 type InstallEvent = Event & { prompt: () => Promise<void> };
@@ -68,6 +69,7 @@ export function SettingsPage() {
       )}
 
       <AiSettings />
+      {!user?.isDemo && <ClaudeConnector />}
       {!user?.isDemo && <SyncSettings />}
 
       <BudgetSettings categories={categories} />

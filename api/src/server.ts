@@ -14,6 +14,7 @@ import { assistantRoutes, type AssistantOptions } from './assistant/route.js';
 import { createProviderSession, verifyApiKey } from './assistant/providers.js';
 import { createSecretBox } from './lib/secret.js';
 import { syncRoutes, tokenRoutes, hashToken, TOKEN_ROUTES } from './routes/sync.js';
+import { mcpRoutes } from './mcp/route.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -47,7 +48,15 @@ export class HttpError extends Error {
 }
 
 export async function buildApp(opts: AppOptions) {
-  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 3 * 1024 * 1024 });
+  // No log, a chave do conector que vier no caminho (/mcp/saldo_...) aparece mascarada.
+  const logger = opts.logger
+    ? {
+        serializers: {
+          req: (req: { method: string; url: string }) => ({ method: req.method, url: req.url.replace(/\/mcp\/[^/?#]+/, '/mcp/***') })
+        }
+      }
+    : false;
+  const app = Fastify({ logger, bodyLimit: 3 * 1024 * 1024 });
 
   app.decorate('db', opts.db);
   await app.register(cors, { origin: opts.corsOrigin ?? true });
@@ -58,13 +67,15 @@ export async function buildApp(opts: AppOptions) {
     // Chave de sincronização (tarefa agendada): só pode chamar as rotas de /api/sync.
     const header = req.headers.authorization ?? '';
     if (header.startsWith('Bearer saldo_')) {
-      const { rows } = await opts.db.query<{ user_id: number }>(
-        'update api_tokens set last_used_at = now() where token_hash = $1 returning user_id',
+      const { rows } = await opts.db.query<{ user_id: number; scope: string }>(
+        'update api_tokens set last_used_at = now() where token_hash = $1 returning user_id, scope',
         [hashToken(header.slice('Bearer '.length).trim())]
       );
       if (!rows[0]) return reply.code(401).send({ error: 'Chave de sincronização inválida ou revogada.' });
       const route = `${req.method} ${req.routeOptions.url ?? req.url.split('?')[0]}`;
-      if (!TOKEN_ROUTES.has(route)) return reply.code(403).send({ error: 'Esta chave só pode enviar lançamentos do banco.' });
+      if (rows[0].scope !== 'sync' || !TOKEN_ROUTES.has(route)) {
+        return reply.code(403).send({ error: 'Esta chave só pode enviar lançamentos do banco.' });
+      }
       req.user = { sub: rows[0].user_id };
       return;
     }
@@ -89,6 +100,9 @@ export async function buildApp(opts: AppOptions) {
     return reply.code(500).send({ error: 'Erro interno. Tente de novo em instantes.' });
   });
 
+  /** Para o despertador do GitHub Actions: mantém o servidor acordado sem acordar o banco. */
+  app.get('/api/ping', async () => ({ ok: true }));
+
   app.get('/api/health', async () => {
     await opts.db.query('select 1');
     return { ok: true };
@@ -112,6 +126,8 @@ export async function buildApp(opts: AppOptions) {
     rateLimit: opts.rateLimit ?? true,
     ...opts.assistant
   });
+
+  await app.register(mcpRoutes, { prefix: '/mcp', timeZone: opts.assistant?.timeZone ?? 'America/Sao_Paulo' });
 
   return app;
 }

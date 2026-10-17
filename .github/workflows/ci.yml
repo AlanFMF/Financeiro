@@ -44,3 +44,7 @@ jobs:
           curl -sf -XPOST localhost:3333/api/budgets/alerts -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d "{\"month\":\"$MES\"}" > /dev/null
           curl -sf -XPOST localhost:3333/api/assistant/chat -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
             -d '{"messages":[{"role":"user","content":"quanto ainda posso gastar no mercado?"}]}' | grep -q 'Alimentação'
+          MCP_KEY=$(curl -sf -XPOST localhost:3333/api/tokens -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+            -d '{"name":"CI","scope":"mcp"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
+          curl -sf -XPOST localhost:3333/mcp -H "authorization: Bearer $MCP_KEY" -H 'content-type: application/json' \
+            -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | grep -q registrar_lancamentos

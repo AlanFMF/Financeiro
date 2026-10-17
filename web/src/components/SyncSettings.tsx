@@ -5,6 +5,7 @@ import { api, ApiError } from '../api';
 interface TokenInfo {
   id: number;
   name: string;
+  scope?: 'sync' | 'mcp';
   hint: string;
   createdAt: string;
   lastUsedAt: string | null;
@@ -27,7 +28,7 @@ export function SyncSettings() {
   const [error, setError] = useState<string | null>(null);
 
   const create = useMutation({
-    mutationFn: () => api.post<{ token: string; info: TokenInfo }>('/tokens', { name: 'Tarefa do Claude' }),
+    mutationFn: () => api.post<{ token: string; info: TokenInfo }>('/tokens', { name: 'Tarefa do Claude', scope: 'sync' }),
     onSuccess: (r) => {
       setCreated(r.token);
       setCopied(false);
@@ -52,7 +53,7 @@ export function SyncSettings() {
     }
   }
 
-  const list = tokens.data ?? [];
+  const list = (tokens.data ?? []).filter((t) => (t.scope ?? 'sync') === 'sync');
 
   return (
     <section className="panel" id="sincronizacao">

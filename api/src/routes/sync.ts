@@ -18,7 +18,7 @@ export const tokenRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/', async (req) => {
     const { rows } = await app.db.query(
-      `select id, name, token_hint as hint, created_at as "createdAt", last_used_at as "lastUsedAt"
+      `select id, name, scope, token_hint as hint, created_at as "createdAt", last_used_at as "lastUsedAt"
        from api_tokens where user_id = $1 order by created_at desc`,
       [req.user.sub]
     );
@@ -27,14 +27,16 @@ export const tokenRoutes: FastifyPluginAsync = async (app) => {
 
   /** Cria uma chave. Ela aparece só nesta resposta; o servidor guarda apenas o hash. */
   app.post('/', async (req, reply) => {
-    const { name } = z.object({ name: z.string().trim().min(1, 'Dê um nome à chave').max(40) }).parse(req.body);
+    const { name, scope } = z
+      .object({ name: z.string().trim().min(1, 'Dê um nome à chave').max(40), scope: z.enum(['sync', 'mcp']).default('sync') })
+      .parse(req.body);
     const count = (await app.db.query<{ n: number }>('select count(*)::int as n from api_tokens where user_id = $1', [req.user.sub])).rows[0].n;
     if (count >= 10) throw new HttpError(400, 'Você já tem 10 chaves. Revogue uma antes de criar outra.');
     const token = `saldo_${randomBytes(24).toString('base64url')}`;
     const { rows } = await app.db.query(
-      `insert into api_tokens (user_id, name, token_hash, token_hint) values ($1, $2, $3, $4)
-       returning id, name, token_hint as hint, created_at as "createdAt", last_used_at as "lastUsedAt"`,
-      [req.user.sub, name, hashToken(token), token.slice(-4)]
+      `insert into api_tokens (user_id, name, scope, token_hash, token_hint) values ($1, $2, $3, $4, $5)
+       returning id, name, scope, token_hint as hint, created_at as "createdAt", last_used_at as "lastUsedAt"`,
+      [req.user.sub, name, scope, hashToken(token), token.slice(-4)]
     );
     reply.code(201);
     return { token, info: rows[0] };

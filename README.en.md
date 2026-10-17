@@ -23,6 +23,7 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 - Spending by category, six-month history, search and filters.
 - Category budgets: a monthly limit per expense category with a progress bar on the month screen. The app warns once at 80% and once when the limit is reached, whether the spending came from the form, the chat or the bank sync. In the chat you can ask how much is left in a category (with a per-day allowance until month end) or set a budget.
 - CSV import with preview, per-line validation, automatic category creation and duplicate detection; CSV export in the spreadsheet format.
+- Claude connector: users create a key in Settings and add Saldo as a custom connector in Claude (web, desktop or mobile). From then on, telling Claude "spent 45 at the market" or asking how much is left in a budget books and queries entries in Saldo through MCP, on the user's own Claude subscription with no API cost. It serves the same tools as the in-app assistant, over a stateless Streamable HTTP endpoint with a scoped key.
 - Daily bank sync: a scheduled Claude task reads the checking account and credit card through Open Finance and posts them with a least-privilege token. The server cleans statement descriptions, categorizes by the user's habits and the bank's category, and deduplicates against manual entries, pending-to-posted id changes and card bill payments.
 - Android APK built and published by GitHub Actions on every push (Capacitor 8), plus an installable PWA. Automatic dark mode, mobile-first layout.
 - Public demo with no real data: each visitor gets a throwaway account deleted after 24 hours.
@@ -33,7 +34,7 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 - **Database:** PostgreSQL 16 with hand-written SQL and versioned migrations. Local development and tests run on PGlite (Postgres compiled to WASM), so nothing needs installing.
 - **Frontend:** React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa.
 - **AI:** bring-your-own-key for Claude (Messages API), ChatGPT (Responses API) and Gemini (generateContent), each behind a thin `fetch` adapter with a shared tool-calling interface; per-user hourly limits.
-- **Quality:** Vitest (135 tests, including the sentence parser, the three AI adapters against recorded request/response shapes, and the assistant against a scripted fake AI), GitHub Actions against a real PostgreSQL 16.
+- **Quality:** Vitest (142 tests, including the sentence parser, the three AI adapters against recorded request/response shapes, and the assistant against a scripted fake AI), GitHub Actions against a real PostgreSQL 16.
 - **Hosting:** Vercel (frontend), Render (API), Neon (database), all on free tiers.
 
 ## Design decisions

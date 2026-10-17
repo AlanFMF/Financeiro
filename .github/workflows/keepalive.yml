@@ -1,0 +1,21 @@
+name: Manter a API acordada
+
+# O plano gratuito do Render desliga o servidor depois de 15 minutos sem uso, e a primeira chamada
+# leva quase um minuto. Isso derruba o conector do Claude por tempo esgotado. Este despertador chama
+# /api/ping (que não toca no banco, para o Neon continuar dormindo) das 6h à 1h no horário de Brasília.
+
+on:
+  schedule:
+    - cron: '*/10 9-23 * * *'
+    - cron: '*/10 0-3 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Chama a API
+        env:
+          API_URL: ${{ vars.SALDO_API_URL || 'https://saldo-api-g1ae.onrender.com' }}
+        run: curl -sS --retry 3 --retry-delay 20 --max-time 90 "$API_URL/api/ping"
