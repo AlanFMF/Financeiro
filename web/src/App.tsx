@@ -7,6 +7,7 @@ import { MonthPage } from './pages/MonthPage';
 import { TransactionsPage } from './pages/TransactionsPage';
 import { ImportPage } from './pages/ImportPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { NativeBackButton } from './backButton';
 
 export function App() {
   const { user, loading } = useAuth();
@@ -22,21 +23,27 @@ export function App() {
   }
   if (!user) {
     return (
-      <Routes>
-        <Route path="*" element={<LoginPage />} />
-      </Routes>
+      <>
+        <NativeBackButton />
+        <Routes>
+          <Route path="*" element={<LoginPage />} />
+        </Routes>
+      </>
     );
   }
 
   return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route index element={<MonthPage />} />
-        <Route path="lancamentos" element={<TransactionsPage />} />
-        <Route path="importar" element={<ImportPage />} />
-        <Route path="ajustes" element={<SettingsPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+    <>
+      <NativeBackButton />
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<MonthPage />} />
+          <Route path="lancamentos" element={<TransactionsPage />} />
+          <Route path="importar" element={<ImportPage />} />
+          <Route path="ajustes" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </>
   );
 }

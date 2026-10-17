@@ -3,6 +3,7 @@ import { ApiError, type Kind, type Transaction } from '../api';
 import { centsToInput, currentMonth, parseAmount, todayIso } from '../format';
 import { useCategories, useDeleteTransaction, useMonth, useSaveTransaction } from '../queries';
 import { IconClose } from './Icons';
+import { useBackHandler } from '../backButton';
 
 interface Props {
   transaction: Transaction | null;
@@ -29,6 +30,9 @@ export function TransactionSheet({ transaction, onClose, onSaved }: Props) {
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
+
+  // Voltar do Android fecha o formulário, como o X.
+  useBackHandler(true, () => dialog.current?.close());
 
   const options = categories.filter((c) => c.kind === kind && (!c.archived || c.id === categoryId));
   const selected = options.find((c) => c.id === categoryId);

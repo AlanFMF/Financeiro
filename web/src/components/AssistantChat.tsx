@@ -7,6 +7,7 @@ import { useInvalidate } from '../queries';
 import { IconChat, IconChevronUp, IconClose, IconLock, IconMic, IconSend, IconTrash } from './Icons';
 import { CANCEL_DISTANCE, LOCK_DISTANCE, formatElapsed, useVoiceRecorder } from '../useVoiceRecorder';
 import { useEditor } from './Layout';
+import { useBackHandler } from '../backButton';
 
 interface ChatMessage {
   id: number;
@@ -127,6 +128,14 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
   });
   const recording = voice.mode !== 'idle';
   const showMic = voice.available && (recording || !input.trim());
+
+  // Voltar do Android: primeiro descarta uma gravação em andamento, depois fecha o assistente.
+  useBackHandler(open, () => (recording ? voice.cancel() : onOpenChange(false)));
+
+  // Fechar o assistente no meio de uma gravação descarta o que estava sendo ditado.
+  useEffect(() => {
+    if (!open && recording) voice.cancel();
+  }, [open, recording, voice]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
