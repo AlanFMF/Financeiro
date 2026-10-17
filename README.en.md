@@ -1,6 +1,6 @@
 # Saldo
 
-**[Versão em português](README.md)**
+**[Versão em português](README.md)** · [API docs](https://saldo-api-g1ae.onrender.com/docs)
 
 A personal finance tracker that runs in the browser and installs on your phone as an app. Log income and expenses in a few taps, see the month's balance and where the money goes. The interface is in Brazilian Portuguese.
 
@@ -9,9 +9,9 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 > **Try it:** [alanfmf.github.io/Financeiro/app](https://alanfmf.github.io/Financeiro/app/) in the browser, or get the Android APK at [alanfmf.github.io/Financeiro](https://alanfmf.github.io/Financeiro/). Click *Abrir a demonstração* for a temporary account with four months of fictitious data.
 
 <p>
-  <img src="docs/mobile-mes.png" width="240" alt="Month view on mobile">
-  <img src="docs/mobile-lancamento.png" width="240" alt="New entry form">
-  <img src="docs/mobile-escuro.png" width="240" alt="Month view in dark mode">
+  <img src="docs/screens/assistente.gif" width="240" alt="Assistant splitting one sentence into two entries and warning about a budget">
+  <img src="docs/screens/mes-light.png" width="240" alt="Month view with balance, month-end forecast and budgets">
+  <img src="docs/screens/conferir.png" width="240" alt="Bank imports waiting for category review">
 </p>
 
 ## Features
@@ -21,6 +21,8 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 - Fast mobile entry: numeric keypad, category chips, pre-filled date, and a home-screen shortcut straight to the form.
 - Recurring items and installments: copy fixed entries to the next month in one tap; `Loan (10/48)` becomes `(11/48)` automatically and the final installment is not copied again.
 - Spending by category, six-month history, search and filters.
+- Month-end forecast: today's balance plus fixed items from last month that haven't shown up yet (without double counting a bank import under another name) and the day-to-day spending pace.
+- Review queue for bank imports: changing a category confirms it, applies it to identical pending items and teaches the next import.
 - Category budgets: a monthly limit per expense category with a progress bar on the month screen. The app warns once at 80% and once when the limit is reached, whether the spending came from the form, the chat or the bank sync. In the chat you can ask how much is left in a category (with a per-day allowance until month end) or set a budget.
 - CSV import with preview, per-line validation, automatic category creation and duplicate detection; CSV export in the spreadsheet format.
 - Claude connector: users create a key in Settings and add Saldo as a custom connector in Claude (web, desktop or mobile). From then on, telling Claude "spent 45 at the market" or asking how much is left in a budget books and queries entries in Saldo through MCP, on the user's own Claude subscription with no API cost. It serves the same tools as the in-app assistant, over a stateless Streamable HTTP endpoint with a scoped key.
@@ -34,7 +36,7 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 - **Database:** PostgreSQL 16 with hand-written SQL and versioned migrations. Local development and tests run on PGlite (Postgres compiled to WASM), so nothing needs installing.
 - **Frontend:** React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa.
 - **AI:** bring-your-own-key for Claude (Messages API), ChatGPT (Responses API) and Gemini (generateContent), each behind a thin `fetch` adapter with a shared tool-calling interface; per-user hourly limits.
-- **Quality:** Vitest (142 tests, including the sentence parser, the three AI adapters against recorded request/response shapes, and the assistant against a scripted fake AI), GitHub Actions against a real PostgreSQL 16.
+- **Quality:** Vitest (163 tests, including the sentence parser, the three AI adapters against recorded request/response shapes, and the assistant against a scripted fake AI), Playwright end-to-end tests on an emulated phone, OpenAPI docs checked against the registered routes, GitHub Actions against a real PostgreSQL 16.
 - **Hosting:** Vercel (frontend), Render (API), Neon (database), all on free tiers.
 
 ## Design decisions

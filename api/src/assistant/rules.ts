@@ -425,6 +425,9 @@ export function isForecastQuestion(message: string): boolean {
   );
 }
 
+const CARVE_OUT = /^(mas|so que|sendo que|dos quais|desse valor|disso)\b/;
+const CARVE_WORDS = /^\s*(mas|só que|so que|sendo que|dos quais|desse valor|disso)(?=\s|$)|(^|\s)(foi|foram|era|eram|é)(?=\s|$)/gi;
+
 export function parseByRules(message: string, today: string, history: HistoryHint[] = []): RuleItem[] {
   const base = normalizeAmounts(message.normalize('NFC').toLowerCase().replace(/[ \t]+/g, ' ').trim());
   const fixedAll = /\b(todo mes|todos os meses|mensalmente|por mes)\b/.test(flat(base));
@@ -464,7 +467,10 @@ export function parseByRules(message: string, today: string, history: HistoryHin
     const amount = pickAmount(clean);
     if (!amount) continue;
 
-    const rest = clean.slice(0, amount.index) + ' ' + clean.slice(amount.index + amount.length);
+    // "mercado deu 230, mas 40 foi ração": a parte citada sai do item anterior e vira um item próprio.
+    const carve = CARVE_OUT.test(f);
+    let rest = clean.slice(0, amount.index) + ' ' + clean.slice(amount.index + amount.length);
+    if (carve) rest = rest.replace(CARVE_WORDS, ' ');
     let description = extractDescription(rest);
 
     const verbKind: Kind | null = IN_VERBS.test(f) ? 'entrada' : OUT_VERBS.test(f) ? 'saida' : null;
@@ -476,6 +482,8 @@ export function parseByRules(message: string, today: string, history: HistoryHin
     if (!description) description = category;
 
     let amountCents = amount.cents;
+    const prev = items.at(-1);
+    if (carve && prev && prev.kind === kind && prev.amountCents > amountCents) prev.amountCents -= amountCents;
     if (p.inst) {
       if (p.inst.divide) amountCents = Math.round(amountCents / p.inst.total);
       description = `${description} (${p.inst.current}/${p.inst.total})`;

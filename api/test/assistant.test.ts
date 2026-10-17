@@ -170,6 +170,7 @@ describe('modo simples (sem IA conectada)', () => {
     ['ontem paguei R$ 1.227,76 do financiamento do carro', [['saida', 'Transporte', 122776, '2026-10-15', 'Financiamento do carro']]],
     ['gastei 30 no uber; 25 na farmácia', [['saida', 'Transporte', 3000, TODAY, 'Uber'], ['saida', 'Saúde', 2500, TODAY, 'Farmácia']]],
     ['dia 10 paguei 300 de luz', [['saida', 'Moradia', 30000, '2026-10-10', 'Luz']]],
+    ['mercado deu 230, mas 40 foi ração', [['saida', 'Alimentação', 19000, TODAY, 'Mercado'], ['saida', 'Pet', 4000, TODAY, 'Ração']]],
     ['oi, tudo bem?', []]
   ])('"%s"', (msg, expected) => {
     expect(parseByRules(msg, TODAY).map((i) => [i.kind, i.category, i.amountCents, i.date, i.description])).toEqual(expected);

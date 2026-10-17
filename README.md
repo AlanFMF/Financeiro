@@ -1,6 +1,9 @@
 # Saldo
 
-**[English version](README.en.md)**
+**[English version](README.en.md)** · [Documentação da API](https://saldo-api-g1ae.onrender.com/docs)
+
+[![CI](https://github.com/AlanFMF/Financeiro/actions/workflows/ci.yml/badge.svg)](https://github.com/AlanFMF/Financeiro/actions/workflows/ci.yml)
+[![Android e Pages](https://github.com/AlanFMF/Financeiro/actions/workflows/android.yml/badge.svg)](https://github.com/AlanFMF/Financeiro/actions/workflows/android.yml)
 
 Controle financeiro pessoal que funciona no computador e se instala no celular como app. Você lança entradas e saídas em poucos toques, vê o saldo do mês e descobre para onde o dinheiro está indo.
 
@@ -9,15 +12,16 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 > **Use agora:** [alanfmf.github.io/Financeiro/app](https://alanfmf.github.io/Financeiro/app/) no navegador, ou baixe o APK em [alanfmf.github.io/Financeiro](https://alanfmf.github.io/Financeiro/). Para só conhecer, toque em *Abrir a demonstração*: cria uma conta temporária com quatro meses de dados fictícios.
 
 <p>
-  <img src="docs/mobile-mes.png" width="240" alt="Tela do mês no celular, com saldo, régua de gastos e categorias">
-  <img src="docs/mobile-lancamento.png" width="240" alt="Formulário de novo lançamento com valor, categoria e data">
-  <img src="docs/mobile-escuro.png" width="240" alt="Tela do mês no modo escuro">
+  <img src="docs/screens/assistente.gif" width="240" alt="Assistente lançando 'gastei 230 no mercado, mas 40 foi ração' em dois itens, avisando que a meta de Alimentação estourou e respondendo quanto ainda dá para gastar">
+  <img src="docs/screens/mes-light.png" width="240" alt="Tela do mês com saldo, régua de gastos, previsão para o fim do mês e metas por categoria">
+  <img src="docs/screens/conferir.png" width="240" alt="Lista de lançamentos importados do Nubank para conferir a categoria">
 </p>
-<img src="docs/desktop-assistente.png" width="760" alt="Tela do mês no computador com o assistente aberto no canto, depois de lançar um freela e a conta de internet">
-
 <p>
-  <img src="docs/mobile-assistente.png" width="240" alt="Assistente no celular lançando mercado e gasolina a partir de uma frase">
+  <img src="docs/screens/metas.png" width="240" alt="Previsão do fim do mês aberta, com a conta, e as barras de metas">
+  <img src="docs/mobile-lancamento.png" width="240" alt="Formulário de novo lançamento com valor, categoria e data">
+  <img src="docs/screens/mes-dark.png" width="240" alt="Tela do mês no modo escuro">
 </p>
+<img src="docs/desktop-assistente.png" width="760" alt="Tela do mês no computador com o assistente aberto no canto">
 
 ## O que ele faz
 
@@ -25,6 +29,8 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Saldo do mês em destaque**, com uma régua que mostra quanto do que entrou já saiu e a comparação com o mês anterior.
 - **Lançamento rápido pelo celular**: teclado numérico, categorias em botões, data já preenchida. O atalho do ícone instalado abre direto o formulário.
 - **Gastos fixos e parcelas**: marque um lançamento como fixo e copie todos para o mês seguinte com um toque. Descrições como `Financiamento (10/48)` avançam sozinhas para `(11/48)`, e a parcela final não é copiada.
+- **Previsão do fim do mês**: junto do saldo de hoje, quanto deve sobrar (ou faltar) no último dia: fixos do mês passado que ainda não apareceram, sem contar duas vezes o aluguel que veio do banco com outro nome, mais o ritmo dos gastos do dia a dia. Um toque abre a conta. O assistente responde "vou fechar o mês no azul?".
+- **Conferir importados**: o que vem do banco entra na lista "a conferir" com a categoria que o app escolheu. Trocar a categoria confirma, leva junto os outros iguais ("Kachin" duas vezes) e ensina o app, que acerta sozinho na próxima importação.
 - **Para onde foi**: total e percentual por categoria, histórico de seis meses e busca com filtro.
 - **Metas por categoria**: um limite mensal por categoria de saída (mercado até R$ 800, por exemplo), com barra de andamento na tela do mês. O app avisa uma vez quando a categoria chega a 80% e outra quando atinge a meta, venha o gasto do formulário, do chat ou do banco. No chat dá para perguntar "quanto ainda posso gastar no mercado?" (a resposta inclui quanto dá por dia até o fim do mês) ou pedir "quero gastar no máximo 800 com mercado".
 - **Importação da planilha**: CSV com Data, Categoria, Descrição, Entrada e Saída (ou extrato com coluna Valor). Mostra uma prévia, aponta linhas com erro, cria categorias novas e não duplica o que já foi importado.
@@ -44,7 +50,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
 | Android | Capacitor 8, APK montado e publicado pelo GitHub Actions |
 | IA | Claude (Messages API), ChatGPT (Responses API) e Gemini (generateContent), com a chave de cada usuário, todos com chamada de ferramentas. Sem SDKs: um adaptador fino por provedor sobre `fetch` |
-| Qualidade | Vitest (142 testes: API, metas, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar e conector MCP com cliente real), GitHub Actions com PostgreSQL 16 real |
+| Qualidade | Vitest (163 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real e cobertura da documentação), Playwright de ponta a ponta num celular emulado, GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
@@ -92,6 +98,7 @@ Para abrir no celular na mesma rede Wi-Fi, use o endereço `Network` que o Vite 
 
 ```bash
 npm test          # testes da API e do app
+npm run e2e -w web  # ponta a ponta com Playwright (sobe a API e o app sozinho)
 npm run typecheck # tipos da API e do front
 npm run build     # build de produção
 ```
@@ -126,7 +133,7 @@ Em cada aba de mês: *Arquivo, Fazer download, Valores separados por vírgula (.
 
 ## API
 
-Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorization: Bearer <token>`.
+Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorization: Bearer <token>`. A documentação navegável (OpenAPI 3.1) fica em [`/docs`](https://saldo-api-g1ae.onrender.com/docs), e um teste garante que toda rota está documentada.
 
 | Método | Rota | Para quê |
 | --- | --- | --- |
@@ -136,7 +143,8 @@ Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorizatio
 | GET, POST, PATCH, DELETE | `/api/categories` | Categorias (excluir só sem lançamentos; senão, arquivar) |
 | GET, POST, PUT, DELETE | `/api/transactions` | Lançamentos, com filtros `month`, `categoryId` e `q` |
 | POST | `/api/transactions/copy-fixed` | Copia os fixos de um mês para outro, avançando parcelas |
-| GET | `/api/summary?month=AAAA-MM` | Totais, comparação com o mês anterior e total por categoria |
+| GET, POST | `/api/transactions/review`, `/review/confirm`, `/review/:id` | Importados a conferir: listar, confirmar e trocar a categoria (os iguais vão junto) |
+| GET | `/api/summary?month=AAAA-MM` | Totais, comparação com o mês anterior, total por categoria e previsão do fim do mês |
 | GET | `/api/summary/history?month=AAAA-MM&months=6` | Série mensal de entradas e saídas |
 | GET | `/api/budgets?month=AAAA-MM` | Metas do mês: limite, gasto, quanto resta e faixa (0, 80 ou 100) |
 | PUT | `/api/budgets/:categoryId` | Define (`budgetCents`) ou remove (`null`) a meta de uma categoria de saída |
