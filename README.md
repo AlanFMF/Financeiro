@@ -31,6 +31,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Gastos fixos e parcelas**: marque um lançamento como fixo e copie todos para o mês seguinte com um toque. Descrições como `Financiamento (10/48)` avançam sozinhas para `(11/48)`, e a parcela final não é copiada.
 - **Previsão do fim do mês**: junto do saldo de hoje, quanto deve sobrar (ou faltar) no último dia: fixos do mês passado que ainda não apareceram, sem contar duas vezes o aluguel que veio do banco com outro nome, mais o ritmo dos gastos do dia a dia. Um toque abre a conta. O assistente responde "vou fechar o mês no azul?".
 - **Notificações no celular** (APK): em Ajustes → Notificações no celular, o app pede a permissão do Android e passa a avisar quando uma meta chega a 80% ou é atingida e quando entram lançamentos do banco para conferir, mesmo fechado. Um executor em segundo plano (Capacitor Background Runner) pergunta ao servidor a cada ~30 minutos com uma chave que só lê `/api/notifications`, então não depende de Firebase nem de conta extra.
+- **Funciona sem internet**: lançar, editar e excluir sem conexão grava no aparelho, atualiza na hora o saldo, as listas e as metas, e marca o item como "no aparelho". Quando a rede volta (ou o app volta do segundo plano), tudo sobe sozinho, em ordem. O app também abre sem internet, com os últimos dados e sem pedir login de novo.
 - **Conferir importados**: o que vem do banco entra na lista "a conferir" com a categoria que o app escolheu. Trocar a categoria confirma, leva junto os outros iguais ("Kachin" duas vezes) e ensina o app, que acerta sozinho na próxima importação.
 - **Para onde foi**: total e percentual por categoria, histórico de seis meses e busca com filtro.
 - **Metas por categoria**: um limite mensal por categoria de saída (mercado até R$ 800, por exemplo), com barra de andamento na tela do mês. O app avisa uma vez quando a categoria chega a 80% e outra quando atinge a meta, venha o gasto do formulário, do chat ou do banco. No chat dá para perguntar "quanto ainda posso gastar no mercado?" (a resposta inclui quanto dá por dia até o fim do mês) ou pedir "quero gastar no máximo 800 com mercado".
@@ -51,7 +52,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
 | Android | Capacitor 8, APK montado e publicado pelo GitHub Actions |
 | IA | Claude (Messages API), ChatGPT (Responses API) e Gemini (generateContent), com a chave de cada usuário, todos com chamada de ferramentas. Sem SDKs: um adaptador fino por provedor sobre `fetch` |
-| Qualidade | Vitest (166 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real e cobertura da documentação), Playwright de ponta a ponta num celular emulado, GitHub Actions com PostgreSQL 16 real |
+| Qualidade | Vitest (174 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real e cobertura da documentação), Playwright de ponta a ponta num celular emulado (inclusive sem internet), GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
@@ -70,6 +71,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Chave de menor privilégio.** As chaves (`saldo_…`) são guardadas só como hash SHA-256, aparecem uma única vez e têm um escopo: a da tarefa agendada só é aceita em `POST /api/sync/bank` e `GET /api/sync/status`, a do conector só em `/mcp` e a das notificações só em `GET /api/notifications`. Qualquer outra rota responde 403.
 - **Limite de uso.** Cada usuário tem um teto de mensagens por hora (`ASSISTANT_HOURLY_LIMIT`), que protege o servidor e a conta de IA dele contra laços.
 - **Aviso de meta que não se repete.** A faixa de cada meta (0, 80 ou 100%) é calculada na hora a partir dos lançamentos, e os avisos já dados ficam numa tabela (`budget_alerts`) por categoria, mês e faixa. Assim o aviso aparece uma única vez, não importa por onde o gasto entrou (inclusive pela sincronização com o banco, com o app fechado), e mudar a meta recomeça a contagem.
+- **Fila offline sem duplicar.** Cada lançamento feito sem internet ganha um id gerado no aparelho (`clientId`), guardado com um índice único por usuário. Se a rede cair depois de o servidor gravar e o app reenviar, a resposta é o mesmo lançamento. Editar ou excluir algo que ainda está na fila só muda a fila. Erro de rede, 5xx e 401 mantêm a fila; o que o servidor recusar (4xx) sai dela e é avisado. O cache do TanStack Query fica no `localStorage`, então o app abre com os últimos dados.
 - **Importação idempotente com prévia.** O CSV é validado linha a linha antes de gravar, e lançamentos idênticos são pulados. Dá para importar o mesmo mês duas vezes sem bagunçar nada.
 
 ## Rodando localmente
@@ -164,7 +166,6 @@ Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorizatio
 ## Próximos passos
 
 - Importação de OFX do banco.
-- Sincronização offline de lançamentos feitos sem internet.
 
 ## Licença
 

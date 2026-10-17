@@ -1904,3 +1904,36 @@ td {
   margin: 8px 0 0;
   font-size: 0.8rem;
 }
+
+/* ---------- sem internet ---------- */
+.offline-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: 0.875rem;
+}
+.offline-bar svg {
+  flex: none;
+  color: var(--muted);
+}
+.offline-bar span {
+  flex: 1;
+}
+.offline-bar .link-btn {
+  flex: none;
+}
+.pending-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.72rem;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--alerta-bg);
+  color: var(--alerta);
+  white-space: nowrap;
+}

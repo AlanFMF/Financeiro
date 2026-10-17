@@ -117,7 +117,12 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
       if (r.transactions.length || r.updated?.length || r.deleted?.length) await invalidate();
       if (r.alerts?.length) vibrate(r.alerts.some((a) => a.level === 100) ? 120 : 60);
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Não consegui falar com o servidor.';
+      const msg =
+        err instanceof ApiError && err.status === 0
+          ? 'Sem internet: o assistente precisa de conexão. Use o botão + para lançar, que fica no aparelho e sobe sozinho depois.'
+          : err instanceof ApiError
+            ? err.message
+            : 'Não consegui falar com o servidor.';
       setMessages((m) => [...m, { id: Date.now() + 1, role: 'assistant', content: msg, error: true }]);
     } finally {
       setPending(false);

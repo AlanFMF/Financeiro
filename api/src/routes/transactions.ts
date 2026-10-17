@@ -61,14 +61,28 @@ export const transactionRoutes: FastifyPluginAsync = async (app) => {
     return { transactions: rows };
   });
 
+  /**
+   * Lança. Com `clientId` (lançamento feito sem internet), repetir o envio devolve o mesmo lançamento
+   * em vez de criar outro.
+   */
   app.post('/', async (req, reply) => {
-    const b = body.parse(req.body);
+    const b = body.extend({ clientId: z.string().trim().min(8).max(64).optional() }).parse(req.body);
     await assertCategory(app.db, req.user.sub, b.categoryId);
+    if (b.clientId) {
+      const existing = (await app.db.query(`${TX_SELECT} where t.user_id = $1 and t.client_id = $2`, [req.user.sub, b.clientId])).rows[0];
+      if (existing) return { transaction: existing, duplicate: true };
+    }
     const { rows } = await app.db.query<{ id: number }>(
-      `insert into transactions (user_id, category_id, date, description, amount_cents, is_fixed)
-       values ($1, $2, $3, $4, $5, $6) returning id`,
-      [req.user.sub, b.categoryId, b.date, b.description, b.amountCents, b.isFixed]
+      `insert into transactions (user_id, category_id, date, description, amount_cents, is_fixed, client_id)
+       values ($1, $2, $3, $4, $5, $6, $7)
+       on conflict (user_id, client_id) where client_id is not null do nothing
+       returning id`,
+      [req.user.sub, b.categoryId, b.date, b.description, b.amountCents, b.isFixed, b.clientId ?? null]
     );
+    if (!rows.length) {
+      // Dois envios iguais ao mesmo tempo: o outro gravou primeiro.
+      return { transaction: (await app.db.query(`${TX_SELECT} where t.user_id = $1 and t.client_id = $2`, [req.user.sub, b.clientId])).rows[0], duplicate: true };
+    }
     reply.code(201);
     return { transaction: (await app.db.query(`${TX_SELECT} where t.id = $1`, [rows[0].id])).rows[0] };
   });

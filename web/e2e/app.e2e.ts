@@ -107,3 +107,49 @@ test('navega entre as abas sem perder a sessão', async ({ page }) => {
   await page.getByRole('link', { name: 'Mês' }).last().click();
   await expect(page.locator('.month-title')).toBeVisible();
 });
+
+test('sem internet: lança no aparelho e sobe quando a conexão volta', async ({ page, context }) => {
+  await signUp(page);
+  await context.setOffline(true);
+  await expect(page.locator('.offline-bar')).toContainText('Sem internet');
+
+  await page.getByRole('button', { name: 'Novo lançamento' }).first().click();
+  await page.locator('.amount-field input').fill('32,50');
+  await page.getByRole('button', { name: 'Transporte' }).click();
+  await page.getByPlaceholder('Ex.: Mercado do mês').fill('Uber offline');
+  await page.getByRole('button', { name: 'Lançar saída' }).click();
+
+  await expect(page.locator('.toast')).toContainText('Sobe quando a internet voltar');
+  const row = page.locator('.tx', { hasText: 'Uber offline' });
+  await expect(row.locator('.pending-tag')).toBeVisible();
+  await expect(page.locator('.hero-value')).toContainText('32,50');
+  await expect(page.locator('.offline-bar')).toContainText('1 alteração esperando');
+
+  await context.setOffline(false);
+  await expect(page.locator('.toast')).toContainText('foi salva');
+  await expect(page.locator('.offline-bar')).toHaveCount(0);
+  await expect(page.locator('.tx', { hasText: 'Uber offline' }).locator('.pending-tag')).toHaveCount(0);
+
+  // Está mesmo no servidor, uma vez só.
+  const jwt = await page.evaluate(() => localStorage.getItem('saldo.token'));
+  const res = await page.request.get('/api/transactions?q=Uber%20offline', { headers: { authorization: `Bearer ${jwt}` } });
+  expect((await res.json()).transactions).toHaveLength(1);
+});
+
+test('abre sem conexão com o servidor: continua logado e mostra os últimos dados', async ({ page }) => {
+  await signUp(page);
+  await page.getByRole('button', { name: 'Novo lançamento' }).first().click();
+  await page.locator('.amount-field input').fill('12');
+  await page.getByRole('button', { name: 'Alimentação' }).click();
+  await page.getByPlaceholder('Ex.: Mercado do mês').fill('Pão de queijo');
+  await page.getByRole('button', { name: 'Lançar saída' }).click();
+  await expect(page.locator('.tx-desc', { hasText: 'Pão de queijo' })).toBeVisible();
+  await page.waitForTimeout(2500); // o cache é gravado no aparelho a cada 2 s
+
+  // Servidor inalcançável (só a API; o app em si continua carregando).
+  await page.route('**/api/**', (route) => route.abort('internetdisconnected'));
+  await page.reload();
+  await expect(page.locator('.month-title')).toBeVisible();
+  await expect(page.locator('.tx-desc', { hasText: 'Pão de queijo' })).toBeVisible();
+  await expect(page.locator('.hero-value')).toContainText('12,00');
+});

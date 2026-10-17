@@ -100,3 +100,10 @@ export const IconCheck = (p: SVGProps<SVGSVGElement>) => (
     <path d="M5 12.5l4.5 4.5L19 7.5" />
   </svg>
 );
+export const IconCloudOff = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base({ width: 14, height: 14, ...p })}>
+    <path d="M7 18h10.5a3.5 3.5 0 00.9-6.9A5.5 5.5 0 008.2 8.6" />
+    <path d="M5.5 10.2A4 4 0 007 18" />
+    <path d="M3 3l18 18" />
+  </svg>
+);

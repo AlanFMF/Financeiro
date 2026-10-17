@@ -1,6 +1,6 @@
 import type { Transaction } from '../api';
 import { dayLabel, money } from '../format';
-import { IconRepeat } from './Icons';
+import { IconCloudOff, IconRepeat } from './Icons';
 import { useEditor } from './Layout';
 
 export function TransactionList({ items, empty }: { items: Transaction[]; empty: React.ReactNode }) {
@@ -30,6 +30,11 @@ export function TransactionList({ items, empty }: { items: Transaction[]; empty:
                       <span className="tx-cat">
                         {t.categoryName}
                         {t.source && <span className="bank-tag">{t.source}</span>}
+                        {t.pending && (
+                          <span className="pending-tag" title="Feito sem internet: sobe quando a conexão voltar">
+                            <IconCloudOff /> no aparelho
+                          </span>
+                        )}
                         {t.isFixed && (
                           <span className="fixed" title="Repete todo mês">
                             <IconRepeat /> fixo

@@ -82,7 +82,14 @@ export const openapi = {
         ['id', 'date', 'description', 'amountCents', 'isFixed', 'categoryId', 'categoryName', 'kind', 'color']
       ),
       TransactionInput: obj(
-        { categoryId: int, date, description: { type: 'string', maxLength: 120 }, amountCents: cents, isFixed: bool },
+        {
+          categoryId: int,
+          date,
+          description: { type: 'string', maxLength: 120 },
+          amountCents: cents,
+          isFixed: bool,
+          clientId: { type: 'string', description: 'Id gerado no aparelho para lançamento feito sem internet: reenviar não duplica' }
+        },
         ['categoryId', 'date', 'amountCents']
       ),
       Budget: obj({

@@ -132,6 +132,29 @@ describe('lançamentos e resumo', () => {
   });
 });
 
+describe('lançamento feito sem internet', () => {
+  it('reenviar o mesmo clientId não duplica, e o id é por usuário', async () => {
+    const a = await ctx.register('offline@exemplo.com');
+    const b = await ctx.register('offline2@exemplo.com');
+    const send = (u: typeof a, amountCents = 4590) =>
+      ctx.app.inject({
+        method: 'POST',
+        url: '/api/transactions',
+        headers: u.headers,
+        payload: { categoryId: u.cat('Alimentação'), date: '2026-10-17', description: 'Mercado', amountCents, clientId: 'c0ffee-0001-aaaa' }
+      });
+    const first = await send(a);
+    expect(first.statusCode).toBe(201);
+    const again = await send(a);
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ duplicate: true, transaction: { id: first.json().transaction.id } });
+    // Mesmo id gerado por outra pessoa é outro lançamento.
+    expect((await send(b)).statusCode).toBe(201);
+    const list = (await ctx.app.inject({ method: 'GET', url: '/api/transactions', headers: a.headers })).json().transactions;
+    expect(list).toHaveLength(1);
+  });
+});
+
 describe('categorias', () => {
   it('cria, renomeia e só exclui quando não tem lançamentos', async () => {
     const { headers, cat } = await ctx.register('cat@exemplo.com');

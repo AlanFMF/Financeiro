@@ -148,6 +148,8 @@ export interface Transaction {
   source?: string | null;
   /** Veio do banco e ainda não foi conferido. */
   needsReview?: boolean;
+  /** Feito sem internet: ainda está na fila do aparelho. */
+  pending?: boolean;
   categoryId: number;
   categoryName: string;
   kind: Kind;

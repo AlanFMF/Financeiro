@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { api, type Budget, type Category, type HistoryPoint, type Summary, type Transaction } from './api';
 import { currentMonth, todayIso } from './format';
+import { hasPending, isNetworkError, looksOffline, queueDelete, queueSave, type TransactionInput } from './outbox';
 
 /** Mês selecionado fica na URL (?mes=2026-10), assim o botão voltar e o compartilhar funcionam. */
 export function useMonth(): [string, (m: string) => void] {
@@ -67,24 +68,59 @@ export function useInvalidate() {
     );
 }
 
-export interface TransactionInput {
-  categoryId: number;
-  date: string;
-  description: string;
-  amountCents: number;
-  isFixed: boolean;
-}
+export type { TransactionInput };
 
+/** Resultado de salvar: `queued` quando ficou na fila do aparelho por falta de internet. */
+export type SaveResult = { queued: boolean };
+
+/**
+ * Salva um lançamento. Sem internet (ou se o servidor não responder), guarda na fila do aparelho,
+ * mostra na hora e envia quando a conexão voltar.
+ */
 export function useSaveTransaction() {
+  const qc = useQueryClient();
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: ({ id, ...data }: TransactionInput & { id?: number }) =>
-      id ? api.put(`/transactions/${id}`, data) : api.post('/transactions', data),
-    onSuccess: invalidate
+    mutationFn: async (input: TransactionInput & { id?: number }): Promise<SaveResult> => {
+      if (looksOffline() || hasPending(input.id)) {
+        queueSave(qc, input);
+        return { queued: true };
+      }
+      const { id, ...data } = input;
+      try {
+        await (id ? api.put(`/transactions/${id}`, data) : api.post('/transactions', data));
+        return { queued: false };
+      } catch (err) {
+        if (!isNetworkError(err)) throw err;
+        queueSave(qc, input);
+        return { queued: true };
+      }
+    },
+    onSuccess: (r) => (r.queued ? undefined : invalidate()),
+    // Sem isso o TanStack pausa a mutação até a rede voltar; aqui quem decide o que fazer offline é a fila.
+    networkMode: 'always'
   });
 }
 
 export function useDeleteTransaction() {
+  const qc = useQueryClient();
   const invalidate = useInvalidate();
-  return useMutation({ mutationFn: (id: number) => api.del(`/transactions/${id}`), onSuccess: invalidate });
+  return useMutation({
+    mutationFn: async (id: number): Promise<SaveResult> => {
+      if (looksOffline() || hasPending(id)) {
+        queueDelete(qc, id);
+        return { queued: true };
+      }
+      try {
+        await api.del(`/transactions/${id}`);
+        return { queued: false };
+      } catch (err) {
+        if (!isNetworkError(err)) throw err;
+        queueDelete(qc, id);
+        return { queued: true };
+      }
+    },
+    onSuccess: (r) => (r.queued ? undefined : invalidate()),
+    networkMode: 'always'
+  });
 }

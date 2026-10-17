@@ -1,6 +1,24 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { api, setUnauthorizedHandler, tokenStore, type User } from './api';
+import { api, ApiError, setUnauthorizedHandler, tokenStore, type User } from './api';
+import { outbox } from './outbox';
+
+const USER_KEY = 'saldo.user';
+const cachedUser = (): User | null => {
+  try {
+    return JSON.parse(localStorage.getItem(USER_KEY) ?? 'null');
+  } catch {
+    return null;
+  }
+};
+const rememberUser = (u: User | null) => {
+  try {
+    if (u) localStorage.setItem(USER_KEY, JSON.stringify(u));
+    else localStorage.removeItem(USER_KEY);
+  } catch {
+    /* sem armazenamento */
+  }
+};
 
 interface AuthState {
   user: User | null;
@@ -18,6 +36,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(() => {
     tokenStore.set(null);
+    rememberUser(null);
+    outbox.clear();
     setUser(null);
     qc.clear();
   }, [qc]);
@@ -26,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (token: string, u: User) => {
       qc.clear();
       tokenStore.set(token);
+      rememberUser(u);
       setUser(u);
     },
     [qc]
@@ -36,8 +57,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!tokenStore.get()) return;
     api
       .get<{ user: User }>('/auth/me')
-      .then((r) => setUser(r.user))
-      .catch(() => signOut())
+      .then((r) => {
+        rememberUser(r.user);
+        setUser(r.user);
+      })
+      .catch((err) => {
+        // Sem internet (ou servidor acordando com erro): entra com o usuário já conhecido. Só sai com 401.
+        const known = cachedUser();
+        if (known && !(err instanceof ApiError && err.status === 401)) setUser(known);
+        else signOut();
+      })
       .finally(() => setLoading(false));
   }, [signOut]);
 

@@ -9,6 +9,7 @@ import { SyncSettings } from '../components/SyncSettings';
 import { BudgetSettings } from '../components/Budgets';
 import { ClaudeConnector } from '../components/ClaudeConnector';
 import { PhoneNotifications } from '../components/PhoneNotifications';
+import { outbox } from '../outbox';
 import { useLocation } from 'react-router-dom';
 
 type InstallEvent = Event & { prompt: () => Promise<void> };
@@ -96,7 +97,14 @@ export function SettingsPage() {
       <section className="panel">
         <h2>Conta</h2>
         <p className="muted">{user?.isDemo ? 'Conta de demonstração com dados fictícios.' : `${user?.name}, ${user?.email}`}</p>
-        <button className="btn" onClick={signOut}>
+        <button
+          className="btn"
+          onClick={() => {
+            const n = outbox.items().length;
+            if (n && !window.confirm(`Há ${n} alteração(ões) feitas sem internet que ainda não subiram. Se sair agora, elas se perdem. Sair mesmo assim?`)) return;
+            signOut();
+          }}
+        >
           Sair
         </button>
       </section>

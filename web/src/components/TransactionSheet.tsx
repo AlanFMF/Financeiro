@@ -49,8 +49,9 @@ export function TransactionSheet({ transaction, onClose, onSaved }: Props) {
     if (!categoryId) return setError('Escolha uma categoria.');
     setError(null);
     try {
-      await save.mutateAsync({ id: transaction?.id, categoryId, date, description: description.trim(), amountCents: cents, isFixed });
-      onSaved(transaction ? 'Lançamento atualizado' : kind === 'saida' ? 'Saída lançada' : 'Entrada lançada');
+      const r = await save.mutateAsync({ id: transaction?.id, categoryId, date, description: description.trim(), amountCents: cents, isFixed });
+      const done = transaction ? 'Lançamento atualizado' : kind === 'saida' ? 'Saída lançada' : 'Entrada lançada';
+      onSaved(r.queued ? `${done} no aparelho. Sobe quando a internet voltar.` : done);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Não foi possível salvar.');
     }
@@ -59,8 +60,8 @@ export function TransactionSheet({ transaction, onClose, onSaved }: Props) {
   async function doDelete() {
     if (!transaction) return;
     try {
-      await remove.mutateAsync(transaction.id);
-      onSaved('Lançamento excluído');
+      const r = await remove.mutateAsync(transaction.id);
+      onSaved(r.queued ? 'Excluído no aparelho. Sobe quando a internet voltar.' : 'Lançamento excluído');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Não foi possível excluir.');
     }
