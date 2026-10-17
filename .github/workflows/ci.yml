@@ -26,7 +26,7 @@ jobs:
       - run: npm ci
       - name: Tipos (API e web)
         run: npm run typecheck
-      - name: Testes da API (PGlite)
+      - name: Testes (API com PGlite e web)
         run: npm test
       - name: Build
         run: npm run build

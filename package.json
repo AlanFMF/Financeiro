@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,yellow \"npm run dev -w api\" \"npm run dev -w web\"",
     "build": "npm run build -w api && npm run build -w web",
-    "test": "npm test -w api",
+    "test": "npm test -w api && npm test -w web",
     "typecheck": "npm run typecheck -w api && npm run typecheck -w web"
   },
   "devDependencies": {

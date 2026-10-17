@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { DictationFailure, dictationAvailable, startDictation, vibrate, type DictationSession } from './speech';
+import { DictationFailure, dictationAvailable, startDictation, vibrate, withTimeout, type DictationSession } from './speech';
 
 export type VoiceMode = 'idle' | 'holding' | 'locked';
 
@@ -29,6 +29,7 @@ export function useVoiceRecorder({ onSend, onNotice }: { onSend: (text: string) 
   const [drag, setDrag] = useState({ x: 0, y: 0 });
 
   const modeRef = useRef<VoiceMode>('idle');
+  const liveText = useRef('');
   const origin = useRef({ x: 0, y: 0, t: 0, id: -1 });
   const pending = useRef<Promise<DictationSession> | null>(null);
   const callbacks = useRef({ onSend, onNotice });
@@ -61,19 +62,25 @@ export function useVoiceRecorder({ onSend, onNotice }: { onSend: (text: string) 
       session.cancel();
       return;
     }
-    const result = (await session.stop()).trim();
+    // O que já apareceu na tela vale como resposta se o reconhecimento não devolver nada a tempo.
+    const shown = liveText.current;
+    const result = ((await withTimeout(session.stop(), 4000, '')).trim() || shown).trim();
     if (result) callbacks.current.onSend(result);
     else callbacks.current.onNotice('Não ouvi nada. Segure o botão e fale.');
   }, []);
 
   const begin = (locked: boolean) => {
     setText('');
+    liveText.current = '';
     setElapsed(0);
     setDrag({ x: 0, y: 0 });
     origin.current.t = Date.now();
     setMode(locked ? 'locked' : 'holding');
     vibrate();
-    const p = startDictation(setText);
+    const p = startDictation((t) => {
+      liveText.current = t;
+      setText(t);
+    });
     pending.current = p;
     p.catch((err) => {
       if (pending.current !== p) return;

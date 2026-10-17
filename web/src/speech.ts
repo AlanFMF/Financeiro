@@ -28,8 +28,15 @@ export class DictationFailure extends Error {
 
 const LANG = 'pt-BR';
 const FINAL_WAIT_MS = 700;
+/** Quanto esperar pelo resultado final do Android depois que a fala termina ou o botão é solto. */
+const NATIVE_FINAL_WAIT_MS = 1200;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const join = (parts: string[]) => parts.map((p) => p.trim()).filter(Boolean).join(' ');
+
+/** Espera a promessa por no máximo `ms`; se ela falhar ou demorar, devolve `fallback`. */
+export function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([p.catch(() => fallback), sleep(ms).then(() => fallback)]);
+}
 
 // ------------------------------------------------------------------ APK (Android nativo)
 
@@ -56,12 +63,20 @@ async function nativeStart(onUpdate: (text: string) => void): Promise<DictationS
   const handles: PluginListenerHandle[] = [];
   const emit = () => onUpdate(join([...committed, partial]));
 
-  const begin = () => NativeSpeech.start({ language: LANG, partialResults: true, popup: false, maxResults: 1 }).catch(() => {});
+  // O resultado final chega pelo mesmo evento dos parciais, um pouco depois do fim da fala.
+  let resultWaiters: (() => void)[] = [];
+  const nextResult = (ms: number) =>
+    withTimeout(new Promise<void>((r) => resultWaiters.push(r)), ms, undefined);
+
+  // start() só resolve de imediato no modo de resultados parciais; o limite evita travar se o Android não responder.
+  const begin = () => withTimeout(NativeSpeech.start({ language: LANG, partialResults: true, popup: false, maxResults: 1 }), 3000, undefined);
+  // stop() do plugin nunca responde no Android (falta o resolve no código nativo): nunca esperar por ele.
+  const halt = () => void NativeSpeech.stop().catch(() => {});
 
   const commitAndRestart = async () => {
     if (restarting) return;
     restarting = true;
-    await sleep(FINAL_WAIT_MS); // o resultado final chega um pouco depois do fim da fala
+    await nextResult(NATIVE_FINAL_WAIT_MS);
     if (partial) committed.push(partial);
     partial = '';
     emit();
@@ -71,8 +86,12 @@ async function nativeStart(onUpdate: (text: string) => void): Promise<DictationS
 
   handles.push(
     await NativeSpeech.addListener('partialResults', (data) => {
-      partial = data.matches?.[0] ?? partial;
+      const best = data.matches?.[0];
+      if (best) partial = best;
       emit();
+      const waiters = resultWaiters;
+      resultWaiters = [];
+      waiters.forEach((w) => w());
     })
   );
   handles.push(
@@ -92,27 +111,26 @@ async function nativeStart(onUpdate: (text: string) => void): Promise<DictationS
     }
   }, 1500);
 
-  const cleanup = async () => {
+  const removeListeners = () => handles.forEach((h) => void h.remove().catch(() => {}));
+  const cleanup = () => {
     active = false;
     clearInterval(watchdog);
-    try {
-      await NativeSpeech.stop();
-    } catch {
-      /* já estava parado */
-    }
+    halt();
   };
 
   await begin();
 
   return {
     async stop() {
-      await cleanup();
-      await sleep(FINAL_WAIT_MS);
-      handles.forEach((h) => h.remove());
+      cleanup();
+      // Se ainda estava ouvindo, o Android manda o texto final logo depois de parar.
+      await nextResult(NATIVE_FINAL_WAIT_MS);
+      removeListeners();
       return join([...committed, partial]);
     },
     cancel() {
-      cleanup().finally(() => handles.forEach((h) => h.remove()));
+      cleanup();
+      removeListeners();
     }
   };
 }
