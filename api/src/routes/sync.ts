@@ -5,6 +5,7 @@ import { HttpError } from '../server.js';
 import { loadHabits } from '../lib/habits.js';
 import { categorizeBank, cleanBankDescription, isCardBillPayment } from '../lib/bank.js';
 import { EXTRA_COLORS } from '../lib/defaults.js';
+import { alertMessage, budgetStatus, type BudgetAlert } from '../lib/budgets.js';
 
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -73,7 +74,18 @@ const syncBody = z.object({
     .max(500)
 });
 
-type ItemResult = { externalId: string; result: 'created' | 'linked' | 'skipped' | 'ignored'; reason?: string; transactionId?: number; category?: string };
+type ItemResult = {
+  externalId: string;
+  result: 'created' | 'linked' | 'skipped' | 'ignored';
+  reason?: string;
+  transactionId?: number;
+  category?: string;
+  kind?: 'entrada' | 'saida';
+  amountCents?: number;
+};
+
+const TIME_ZONE = process.env.APP_TIMEZONE ?? 'America/Sao_Paulo';
+const currentMonth = () => new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date()).slice(0, 7);
 
 export const syncRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('onRequest', app.authenticate);
@@ -182,11 +194,37 @@ export const syncRoutes: FastifyPluginAsync = async (app) => {
           rows[0].id,
           status
         ]);
-        results.push({ externalId: it.externalId, result: 'created', transactionId: rows[0].id, category });
+        results.push({ externalId: it.externalId, result: 'created', transactionId: rows[0].id, category, kind: it.kind, amountCents: it.amountCents });
       }
 
       const count = (r: ItemResult['result']) => results.filter((x) => x.result === r).length;
-      return { created: count('created'), linked: count('linked'), skipped: count('skipped'), ignored: count('ignored'), items: results };
+      const created = results.filter((x) => x.result === 'created');
+      const sum = (kind: 'entrada' | 'saida') => {
+        const items = created.filter((x) => x.kind === kind);
+        return { count: items.length, cents: items.reduce((s, x) => s + (x.amountCents ?? 0), 0) };
+      };
+
+      // Metas do mês que estão em 80% ou mais e receberam lançamento agora: vão no aviso da tarefa.
+      // Não marca o aviso como dado: o app ainda mostra o seu quando for aberto.
+      const touched = (
+        await tx.query<{ category_id: number }>('select distinct category_id from transactions where user_id = $1 and id = any($2::int[])', [
+          userId,
+          results.filter((x) => x.transactionId).map((x) => x.transactionId!)
+        ])
+      ).rows.map((r) => r.category_id);
+      const alerts = touched.length
+        ? (await budgetStatus(tx, userId, currentMonth(), touched)).filter((b): b is BudgetAlert => b.level > 0)
+        : [];
+
+      return {
+        created: count('created'),
+        linked: count('linked'),
+        skipped: count('skipped'),
+        ignored: count('ignored'),
+        summary: { saida: sum('saida'), entrada: sum('entrada') },
+        alerts: alerts.map((a) => ({ categoryId: a.categoryId, level: a.level, pct: a.pct, message: alertMessage(a) })),
+        items: results
+      };
     });
   });
 };

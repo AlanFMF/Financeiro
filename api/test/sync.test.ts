@@ -130,6 +130,25 @@ describe('sincronização com o banco', () => {
     expect((await list())[0].description).toBe('Pix de Fulano Silva');
   });
 
+  it('devolve o resumo do dia e as metas que passaram de 80%', async () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    await ctx.app.inject({ method: 'PUT', url: `/api/budgets/${user.cat('Alimentação')}`, headers: user.headers, payload: { budgetCents: 250_00 } });
+    const body = (
+      await send([
+        compra({ date: today }),
+        compra({ externalId: 'tx-2', date: today, amountCents: 50_00, kind: 'entrada', description: 'Transferência Recebida|Fulano', bankCategory: 'Transfers' })
+      ])
+    ).json();
+    expect(body.summary).toEqual({ saida: { count: 1, cents: 23149 }, entrada: { count: 1, cents: 5000 } });
+    expect(body.alerts).toHaveLength(1);
+    expect(body.alerts[0]).toMatchObject({ level: 80, pct: 92 });
+    expect(body.alerts[0].message).toContain('92% da meta de Alimentação');
+    // O app ainda recebe o próprio aviso quando for aberto.
+    const month = today.slice(0, 7);
+    const pending = (await ctx.app.inject({ method: 'POST', url: '/api/budgets/alerts', headers: user.headers, payload: { month } })).json();
+    expect(pending.alerts).toHaveLength(1);
+  });
+
   it('valida o formato e limita o lote', async () => {
     expect((await send([{ externalId: 'x', date: '13/10/2026', amountCents: 10, kind: 'saida' }])).statusCode).toBe(400);
     expect((await send(Array.from({ length: 501 }, (_, i) => compra({ externalId: `t${i}` })))).statusCode).toBe(400);
