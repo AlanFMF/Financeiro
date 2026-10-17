@@ -80,7 +80,8 @@ function tidyCase(s: string) {
 export function cleanBankDescription(raw: string, installment?: { number: number; total: number }) {
   let d = raw.replace(/\s+/g, ' ').trim();
   const [head, ...rest] = d.split('|').map((p) => p.trim());
-  const tail = tidyCase(rest.join(' ').trim());
+  // Microempreendedor aparece com o CNPJ na frente ("64.099.660 SILAS MARTI"): o número não ajuda ninguém.
+  const tail = tidyCase(rest.join(' ').replace(/^\d{2}\.?\d{3}\.?\d{3}(\/?\d{4}-?\d{2})?\s+/, '').trim());
   const h = flat(head);
   if (tail) {
     if (/transferencia recebida|pix recebido/.test(h)) d = `Pix de ${tail}`;

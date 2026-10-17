@@ -95,3 +95,8 @@ export const IconRepeat =(p: SVGProps<SVGSVGElement>) => (
     <path d="M20 13v2a4 4 0 01-4 4H4" />
   </svg>
 );
+export const IconCheck = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base({ strokeWidth: 2.2, ...p })}>
+    <path d="M5 12.5l4.5 4.5L19 7.5" />
+  </svg>
+);

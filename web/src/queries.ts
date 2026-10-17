@@ -41,6 +41,12 @@ export const useBudgets = (month: string) =>
     queryFn: () => api.get<{ budgets: Budget[] }>(`/budgets?month=${month}`).then((r) => r.budgets)
   });
 
+export const useReview = () =>
+  useQuery({
+    queryKey: ['review'],
+    queryFn: () => api.get<{ transactions: Transaction[] }>('/transactions/review').then((r) => r.transactions)
+  });
+
 export const useTransactions = (filters: { month?: string; categoryId?: number; q?: string }) => {
   const qs = new URLSearchParams();
   if (filters.month) qs.set('month', filters.month);
@@ -57,7 +63,7 @@ export function useInvalidate() {
   const qc = useQueryClient();
   return () =>
     Promise.all(
-      ['transactions', 'summary', 'history', 'categories', 'budgets', 'budget-alerts'].map((k) => qc.invalidateQueries({ queryKey: [k] }))
+      ['transactions', 'summary', 'history', 'categories', 'budgets', 'budget-alerts', 'review'].map((k) => qc.invalidateQueries({ queryKey: [k] }))
     );
 }
 

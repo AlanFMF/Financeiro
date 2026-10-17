@@ -184,8 +184,8 @@ export const syncRoutes: FastifyPluginAsync = async (app) => {
         const description = cleanBankDescription(it.description, it.installment);
         const category = categorizeBank(description, it.kind, it.bankCategory, habits);
         const { rows } = await tx.query<{ id: number }>(
-          `insert into transactions (user_id, category_id, date, description, amount_cents, source)
-           values ($1, $2, $3, $4, $5, $6) returning id`,
+          `insert into transactions (user_id, category_id, date, description, amount_cents, source, needs_review)
+           values ($1, $2, $3, $4, $5, $6, true) returning id`,
           [userId, await catId(category, it.kind), it.date, description, it.amountCents, body.source]
         );
         await tx.query('insert into bank_refs (user_id, external_id, transaction_id, status) values ($1, $2, $3, $4)', [

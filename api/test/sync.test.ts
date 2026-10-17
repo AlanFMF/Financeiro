@@ -149,6 +149,76 @@ describe('sincronização com o banco', () => {
     expect(pending.alerts).toHaveLength(1);
   });
 
+  it('importados entram para conferir; trocar a categoria ensina e vale para os iguais', async () => {
+    const pix = (id: string, date: string) =>
+      compra({ externalId: id, date, amountCents: 1900, description: 'Compra no débito|Kachin', bankCategory: 'Shopping', status: 'POSTED' });
+    await send([pix('k1', '2026-10-15'), pix('k2', '2026-10-16'), compra({ externalId: 'lev' })]);
+    const review = async () =>
+      (await ctx.app.inject({ method: 'GET', url: '/api/transactions/review', headers: user.headers })).json().transactions as {
+        id: number;
+        description: string;
+        categoryName: string;
+        needsReview: boolean;
+      }[];
+    let items = await review();
+    expect(items).toHaveLength(3);
+    expect(items.every((t) => t.needsReview)).toBe(true);
+    const kachin = items.filter((t) => t.description === 'Kachin');
+    expect(kachin.map((t) => t.categoryName)).toEqual(['Compras', 'Compras']);
+
+    // Troca um: o outro igual vai junto.
+    const r = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/transactions/review/${kachin[0].id}`,
+      headers: user.headers,
+      payload: { categoryId: user.cat('Alimentação') }
+    });
+    expect(r.json().updated).toHaveLength(2);
+    items = await review();
+    expect(items.map((t) => t.description)).toEqual(['Levemax Superatacado P']);
+
+    // Categoria de outro tipo é recusada.
+    const bad = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/transactions/review/${items[0].id}`,
+      headers: user.headers,
+      payload: { categoryId: user.cat('Extra') }
+    });
+    expect(bad.statusCode).toBe(400);
+
+    // Confirmar como está tira da lista.
+    const ok = await ctx.app.inject({ method: 'POST', url: '/api/transactions/review/confirm', headers: user.headers, payload: { ids: [items[0].id] } });
+    expect(ok.json().confirmed).toBe(1);
+    expect(await review()).toEqual([]);
+
+    // A próxima importação já usa o que ele ensinou.
+    await send([pix('k3', '2026-10-17')]);
+    const [next] = await review();
+    expect(next.categoryName).toBe('Alimentação');
+  });
+
+  it('editar um lançamento importado também conta como conferido', async () => {
+    await send([compra()]);
+    const [t] = (await ctx.app.inject({ method: 'GET', url: '/api/transactions/review', headers: user.headers })).json().transactions;
+    await ctx.app.inject({
+      method: 'PUT',
+      url: `/api/transactions/${t.id}`,
+      headers: user.headers,
+      payload: { categoryId: t.categoryId, date: t.date, description: 'Mercado', amountCents: t.amountCents, isFixed: false }
+    });
+    expect((await ctx.app.inject({ method: 'GET', url: '/api/transactions/review', headers: user.headers })).json().transactions).toEqual([]);
+  });
+
+  it('outro usuário não confere nem troca o que não é dele', async () => {
+    await send([compra()]);
+    const [t] = (await ctx.app.inject({ method: 'GET', url: '/api/transactions/review', headers: user.headers })).json().transactions;
+    const other = await ctx.register('intruso@x.com');
+    const r = await ctx.app.inject({ method: 'POST', url: `/api/transactions/review/${t.id}`, headers: other.headers, payload: { categoryId: other.cat('Lazer') } });
+    expect(r.statusCode).toBe(404);
+    const c = await ctx.app.inject({ method: 'POST', url: '/api/transactions/review/confirm', headers: other.headers, payload: { ids: [t.id] } });
+    expect(c.json().confirmed).toBe(0);
+  });
+
   it('valida o formato e limita o lote', async () => {
     expect((await send([{ externalId: 'x', date: '13/10/2026', amountCents: 10, kind: 'saida' }])).statusCode).toBe(400);
     expect((await send(Array.from({ length: 501 }, (_, i) => compra({ externalId: `t${i}` })))).statusCode).toBe(400);
@@ -161,6 +231,8 @@ describe('descrições e categorias do extrato', () => {
     ['Transferência enviada pelo Pix|CEMIG DISTRIBUICAO S.A', undefined, 'Pix para Cemig Distribuicao S.A'],
     ['Pagamento efetuado|IVAN NEGOCIOS IMOBILIARIOS LTD', undefined, 'Pagamento a Ivan Negocios Imobiliarios Ltd'],
     ['Compra no débito|ANGELO APARECIDO BARBO', undefined, 'Angelo Aparecido Barbo'],
+    ['Compra no débito|64.099.660 SILAS MARTI', undefined, 'Silas Marti'],
+    ['Compra no débito|12.345.678/0001-90 PADARIA BOM PAO', undefined, 'Padaria Bom Pao'],
     ['Shopee *Jimmystore 5/6', undefined, 'Shopee *Jimmystore (5/6)'],
     ['SHOPEE *SHPSTECNOLOGIA 7/9', { number: 7, total: 9 }, 'Shopee *shpstecnologia (7/9)'],
     ['Transferência Recebida', undefined, 'Transferência Recebida']

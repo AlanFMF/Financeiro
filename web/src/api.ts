@@ -146,6 +146,8 @@ export interface Transaction {
   isFixed: boolean;
   /** "Nubank cartão", "Nubank conta"... quando veio da sincronização com o banco. */
   source?: string | null;
+  /** Veio do banco e ainda não foi conferido. */
+  needsReview?: boolean;
   categoryId: number;
   categoryName: string;
   kind: Kind;

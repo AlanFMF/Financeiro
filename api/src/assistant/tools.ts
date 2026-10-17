@@ -248,7 +248,7 @@ export async function runTool(name: string, input: Input, ctx: ToolContext): Pro
     const isFixed = typeof input.fixo === 'boolean' ? input.fixo : current.isFixed;
 
     await ctx.db.query(
-      `update transactions set category_id = $3, date = $4, description = $5, amount_cents = $6, is_fixed = $7, updated_at = now()
+      `update transactions set category_id = $3, date = $4, description = $5, amount_cents = $6, is_fixed = $7, needs_review = false, updated_at = now()
        where id = $1 and user_id = $2`,
       [id, ctx.userId, categoryId, date, description, amountCents, isFixed]
     );

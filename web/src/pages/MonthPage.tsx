@@ -7,6 +7,7 @@ import { MonthSwitcher } from '../components/MonthSwitcher';
 import { TransactionList } from '../components/TransactionList';
 import { useEditor } from '../components/Layout';
 import { BudgetPanel } from '../components/Budgets';
+import { ReviewPanel } from '../components/ReviewPanel';
 
 export function MonthPage() {
   const [month] = useMonth();
@@ -40,6 +41,7 @@ export function MonthPage() {
       <div className="month-grid">
         <div className="col">
           <BalanceHero s={s} loading={summary.isLoading} />
+          <ReviewPanel />
           <BudgetPanel month={month} />
 
           {isEmpty ? (

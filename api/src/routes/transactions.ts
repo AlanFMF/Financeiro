@@ -25,7 +25,7 @@ const listQuery = z.object({
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
 export const TX_SELECT = `select t.id, to_char(t.date, 'YYYY-MM-DD') as date, t.description,
-  t.amount_cents as "amountCents", t.is_fixed as "isFixed", t.source,
+  t.amount_cents as "amountCents", t.is_fixed as "isFixed", t.source, t.needs_review as "needsReview",
   c.id as "categoryId", c.name as "categoryName", c.kind, c.color
   from transactions t join categories c on c.id = t.category_id`;
 
@@ -79,7 +79,7 @@ export const transactionRoutes: FastifyPluginAsync = async (app) => {
     await assertCategory(app.db, req.user.sub, b.categoryId);
     const { rows } = await app.db.query(
       `update transactions set category_id = $3, date = $4, description = $5, amount_cents = $6,
-         is_fixed = $7, updated_at = now()
+         is_fixed = $7, needs_review = false, updated_at = now()
        where id = $1 and user_id = $2 returning id`,
       [id, req.user.sub, b.categoryId, b.date, b.description, b.amountCents, b.isFixed]
     );
@@ -92,6 +92,50 @@ export const transactionRoutes: FastifyPluginAsync = async (app) => {
     const { rows } = await app.db.query('delete from transactions where id = $1 and user_id = $2 returning id', [id, req.user.sub]);
     if (!rows.length) throw new HttpError(404, 'Lançamento não encontrado.');
     return reply.code(204).send();
+  });
+
+  /** Lançamentos do banco que ainda não foram conferidos, do mais novo para o mais antigo. */
+  app.get('/review', async (req) => {
+    const { rows } = await app.db.query(`${TX_SELECT} where t.user_id = $1 and t.needs_review order by t.date desc, t.id desc limit 200`, [
+      req.user.sub
+    ]);
+    return { transactions: rows };
+  });
+
+  /** Confirma lançamentos como estão. */
+  app.post('/review/confirm', async (req) => {
+    const { ids } = z.object({ ids: z.array(z.number().int().positive()).min(1).max(500) }).parse(req.body);
+    const { rows } = await app.db.query(
+      'update transactions set needs_review = false where user_id = $1 and id = any($2::int[]) and needs_review returning id',
+      [req.user.sub, ids]
+    );
+    return { confirmed: rows.length };
+  });
+
+  /**
+   * Troca a categoria de um lançamento a conferir e confirma. Os outros a conferir com a mesma descrição
+   * ("Kachin" duas vezes no mês) recebem a mesma categoria. Daí em diante o hábito vale para as próximas importações.
+   */
+  app.post('/review/:id', async (req) => {
+    const { id } = idParam.parse(req.params);
+    const { categoryId } = z.object({ categoryId: z.number().int().positive() }).parse(req.body);
+    await assertCategory(app.db, req.user.sub, categoryId);
+    const tx = (await app.db.query<{ description: string; kind: string }>(
+      `select t.description, c.kind from transactions t join categories c on c.id = t.category_id where t.id = $1 and t.user_id = $2`,
+      [id, req.user.sub]
+    )).rows[0];
+    if (!tx) throw new HttpError(404, 'Lançamento não encontrado.');
+    const kind = (await app.db.query<{ kind: string }>('select kind from categories where id = $1', [categoryId])).rows[0].kind;
+    if (kind !== tx.kind) throw new HttpError(400, 'Escolha uma categoria do mesmo tipo (entrada ou saída).');
+    const { rows } = await app.db.query<{ id: number }>(
+      `update transactions t set category_id = $3, needs_review = false, updated_at = now()
+       from categories c
+       where c.id = t.category_id and t.user_id = $2 and c.kind = $5
+         and (t.id = $1 or (t.needs_review and t.description <> '' and lower(t.description) = lower($4)))
+       returning t.id`,
+      [id, req.user.sub, categoryId, tx.description, tx.kind]
+    );
+    return { updated: rows.map((r) => r.id) };
   });
 
   /**
