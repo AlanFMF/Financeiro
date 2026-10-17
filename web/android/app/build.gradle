@@ -51,6 +51,8 @@ android {
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+        // Motor JavaScript das notificações em segundo plano (Background Runner)
+        dirs '../../../node_modules/@capacitor/background-runner/android/src/main/libs', 'libs'
     }
 }
 

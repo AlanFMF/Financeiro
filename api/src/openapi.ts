@@ -48,7 +48,8 @@ export const openapi = {
     securitySchemes: {
       jwt: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'Token de /api/auth/login, /register ou /demo' },
       syncKey: { type: 'http', scheme: 'bearer', description: 'Chave `saldo_…` de escopo `sync`: só /api/sync' },
-      mcpKey: { type: 'http', scheme: 'bearer', description: 'Chave `saldo_…` de escopo `mcp`: só /mcp' }
+      mcpKey: { type: 'http', scheme: 'bearer', description: 'Chave `saldo_…` de escopo `mcp`: só /mcp' },
+      notifyKey: { type: 'http', scheme: 'bearer', description: 'Chave `saldo_…` de escopo `notify`: só /api/notifications' }
     },
     schemas: {
       Error: obj({ error: str }, ['error']),
@@ -120,7 +121,7 @@ export const openapi = {
       Token: obj({
         id: int,
         name: str,
-        scope: { type: 'string', enum: ['sync', 'mcp'] },
+        scope: { type: 'string', enum: ['sync', 'mcp', 'notify'] },
         hint: { type: 'string', description: 'Últimos 4 caracteres' },
         createdAt: { type: 'string', format: 'date-time' },
         lastUsedAt: { type: ['string', 'null'], format: 'date-time' }
@@ -368,7 +369,7 @@ export const openapi = {
       post: {
         tags: ['Banco e conector'],
         summary: 'Criar chave (aparece uma única vez)',
-        requestBody: body(obj({ name: str, scope: { type: 'string', enum: ['sync', 'mcp'] } }, ['name'])),
+        requestBody: body(obj({ name: str, scope: { type: 'string', enum: ['sync', 'mcp', 'notify'] } }, ['name'])),
         responses: { 201: json(obj({ token: str, info: ref('Token') })), ...errors }
       }
     },
@@ -404,6 +405,25 @@ export const openapi = {
         summary: 'Última sincronização',
         security: [{ syncKey: [] }, { jwt: [] }],
         responses: { 200: json(obj({ lastSyncAt: { type: ['string', 'null'] }, importedRefs: int })) }
+      }
+    },
+    '/api/notifications': {
+      get: {
+        tags: ['Banco e conector'],
+        summary: 'Notificações para o celular (metas e importações novas), entregues uma vez',
+        description: 'Chamada pelo app instalado em segundo plano. A primeira chamada só marca o ponto de partida das importações.',
+        security: [{ notifyKey: [] }, { jwt: [] }],
+        responses: {
+          200: json(
+            obj({
+              notifications: {
+                type: 'array',
+                items: obj({ id: int, title: str, body: str, kind: { type: 'string', enum: ['meta', 'importados'] } })
+              }
+            })
+          ),
+          403: json(ref('Error'), 'Chave de outro escopo')
+        }
       }
     },
     '/mcp': {

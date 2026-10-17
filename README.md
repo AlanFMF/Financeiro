@@ -30,6 +30,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Lançamento rápido pelo celular**: teclado numérico, categorias em botões, data já preenchida. O atalho do ícone instalado abre direto o formulário.
 - **Gastos fixos e parcelas**: marque um lançamento como fixo e copie todos para o mês seguinte com um toque. Descrições como `Financiamento (10/48)` avançam sozinhas para `(11/48)`, e a parcela final não é copiada.
 - **Previsão do fim do mês**: junto do saldo de hoje, quanto deve sobrar (ou faltar) no último dia: fixos do mês passado que ainda não apareceram, sem contar duas vezes o aluguel que veio do banco com outro nome, mais o ritmo dos gastos do dia a dia. Um toque abre a conta. O assistente responde "vou fechar o mês no azul?".
+- **Notificações no celular** (APK): em Ajustes → Notificações no celular, o app pede a permissão do Android e passa a avisar quando uma meta chega a 80% ou é atingida e quando entram lançamentos do banco para conferir, mesmo fechado. Um executor em segundo plano (Capacitor Background Runner) pergunta ao servidor a cada ~30 minutos com uma chave que só lê `/api/notifications`, então não depende de Firebase nem de conta extra.
 - **Conferir importados**: o que vem do banco entra na lista "a conferir" com a categoria que o app escolheu. Trocar a categoria confirma, leva junto os outros iguais ("Kachin" duas vezes) e ensina o app, que acerta sozinho na próxima importação.
 - **Para onde foi**: total e percentual por categoria, histórico de seis meses e busca com filtro.
 - **Metas por categoria**: um limite mensal por categoria de saída (mercado até R$ 800, por exemplo), com barra de andamento na tela do mês. O app avisa uma vez quando a categoria chega a 80% e outra quando atinge a meta, venha o gasto do formulário, do chat ou do banco. No chat dá para perguntar "quanto ainda posso gastar no mercado?" (a resposta inclui quanto dá por dia até o fim do mês) ou pedir "quero gastar no máximo 800 com mercado".
@@ -50,7 +51,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
 | Android | Capacitor 8, APK montado e publicado pelo GitHub Actions |
 | IA | Claude (Messages API), ChatGPT (Responses API) e Gemini (generateContent), com a chave de cada usuário, todos com chamada de ferramentas. Sem SDKs: um adaptador fino por provedor sobre `fetch` |
-| Qualidade | Vitest (163 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real e cobertura da documentação), Playwright de ponta a ponta num celular emulado, GitHub Actions com PostgreSQL 16 real |
+| Qualidade | Vitest (166 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real e cobertura da documentação), Playwright de ponta a ponta num celular emulado, GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
@@ -66,7 +67,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Funciona sem chave.** Sem IA conectada, o assistente cai num modo simples por regras que entende valores por extenso ("cinquenta reais e noventa centavos", "mil e duzentos", "2k"), datas relativas ("sexta passada", "dia 10", "12/09"), parcelamentos, vários itens numa frase e "apaga o último", e também aprende com o histórico de categorias. O app nunca fica sem chat.
 - **Sincronização idempotente.** Cada id de transação do banco fica numa tabela de referências (`bank_refs`) que pode apontar vários ids para o mesmo lançamento, porque o banco troca o id quando a compra sai de pendente. Antes de criar, o servidor procura um lançamento do mesmo tipo e valor até 3 dias de distância feito à mão (conciliação). Apagar um lançamento importado deixa a referência sem alvo, então ele não volta na sincronização seguinte.
 - **MCP sem sessão, com as mesmas ferramentas.** O endpoint `/mcp` usa o transporte Streamable HTTP do SDK oficial em modo sem sessão: cada requisição autentica a chave, monta um servidor com as ferramentas do assistente e as instruções do usuário (categorias, hábitos e calendário) e responde em JSON. Nenhuma IA é chamada pelo servidor; quem conversa é o Claude da pessoa. A chave pode vir no cabeçalho `Authorization` ou no caminho (`/mcp/<chave>`), e nesse caso aparece mascarada no log.
-- **Chave de menor privilégio.** As chaves (`saldo_…`) são guardadas só como hash SHA-256, aparecem uma única vez e têm um escopo: a da tarefa agendada só é aceita em `POST /api/sync/bank` e `GET /api/sync/status`, e a do conector só em `/mcp`. Qualquer outra rota responde 403.
+- **Chave de menor privilégio.** As chaves (`saldo_…`) são guardadas só como hash SHA-256, aparecem uma única vez e têm um escopo: a da tarefa agendada só é aceita em `POST /api/sync/bank` e `GET /api/sync/status`, a do conector só em `/mcp` e a das notificações só em `GET /api/notifications`. Qualquer outra rota responde 403.
 - **Limite de uso.** Cada usuário tem um teto de mensagens por hora (`ASSISTANT_HOURLY_LIMIT`), que protege o servidor e a conta de IA dele contra laços.
 - **Aviso de meta que não se repete.** A faixa de cada meta (0, 80 ou 100%) é calculada na hora a partir dos lançamentos, e os avisos já dados ficam numa tabela (`budget_alerts`) por categoria, mês e faixa. Assim o aviso aparece uma única vez, não importa por onde o gasto entrou (inclusive pela sincronização com o banco, com o app fechado), e mudar a meta recomeça a contagem.
 - **Importação idempotente com prévia.** O CSV é validado linha a linha antes de gravar, e lançamentos idênticos são pulados. Dá para importar o mesmo mês duas vezes sem bagunçar nada.
@@ -156,6 +157,7 @@ Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorizatio
 | GET, POST, DELETE | `/api/tokens` | Chaves de acesso (`scope`: `sync` para a tarefa do banco, `mcp` para o conector do Claude) |
 | POST | `/api/sync/bank` | Recebe transações do banco (com a chave de sincronização) |
 | GET | `/api/sync/status` | Última sincronização |
+| GET | `/api/notifications` | Notificações do celular (metas e importações novas), com a chave de escopo `notify`; cada uma sai uma vez |
 | POST | `/mcp` | Conector do Claude (MCP, Streamable HTTP), com a chave de escopo `mcp` |
 | GET, PUT, DELETE | `/api/assistant/settings` | Conectar, trocar ou desconectar a IA do usuário (a chave nunca é devolvida) |
 

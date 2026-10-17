@@ -7,3 +7,6 @@ project(':capacitor-community-speech-recognition').projectDir = new File('../../
 
 include ':capacitor-app'
 project(':capacitor-app').projectDir = new File('../../node_modules/@capacitor/app/android')
+
+include ':capacitor-background-runner'
+project(':capacitor-background-runner').projectDir = new File('../../node_modules/@capacitor/background-runner/android')

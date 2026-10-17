@@ -11,6 +11,14 @@
       "insetsHandling": "css",
       "initialViewportFitValueHint": "cover",
       "style": "DEFAULT"
+    },
+    "BackgroundRunner": {
+      "label": "io.github.alanfmf.saldo.notificacoes",
+      "src": "runners/notify.js",
+      "event": "saldoCheck",
+      "repeat": true,
+      "interval": 30,
+      "autoStart": true
     }
   }
 }

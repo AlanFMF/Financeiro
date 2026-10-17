@@ -9,8 +9,14 @@ import { alertMessage, budgetStatus, type BudgetAlert } from '../lib/budgets.js'
 
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
-/** Rotas que uma chave de sincronização pode chamar. Todo o resto exige login normal. */
-export const TOKEN_ROUTES = new Set(['POST /api/sync/bank', 'GET /api/sync/status']);
+/**
+ * O que cada chave pode chamar. Todo o resto exige login normal.
+ * A chave do conector do Claude (mcp) não aparece aqui: ela só é aceita no próprio /mcp.
+ */
+export const SCOPE_ROUTES: Record<string, Set<string>> = {
+  sync: new Set(['POST /api/sync/bank', 'GET /api/sync/status']),
+  notify: new Set(['GET /api/notifications'])
+};
 
 // ------------------------------------------------------------------ chaves (só com login normal)
 
@@ -29,7 +35,7 @@ export const tokenRoutes: FastifyPluginAsync = async (app) => {
   /** Cria uma chave. Ela aparece só nesta resposta; o servidor guarda apenas o hash. */
   app.post('/', async (req, reply) => {
     const { name, scope } = z
-      .object({ name: z.string().trim().min(1, 'Dê um nome à chave').max(40), scope: z.enum(['sync', 'mcp']).default('sync') })
+      .object({ name: z.string().trim().min(1, 'Dê um nome à chave').max(40), scope: z.enum(['sync', 'mcp', 'notify']).default('sync') })
       .parse(req.body);
     const count = (await app.db.query<{ n: number }>('select count(*)::int as n from api_tokens where user_id = $1', [req.user.sub])).rows[0].n;
     if (count >= 10) throw new HttpError(400, 'Você já tem 10 chaves. Revogue uma antes de criar outra.');

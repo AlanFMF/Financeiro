@@ -13,7 +13,8 @@ import { importExportRoutes } from './routes/import-export.js';
 import { assistantRoutes, type AssistantOptions } from './assistant/route.js';
 import { createProviderSession, verifyApiKey } from './assistant/providers.js';
 import { createSecretBox } from './lib/secret.js';
-import { syncRoutes, tokenRoutes, hashToken, TOKEN_ROUTES } from './routes/sync.js';
+import { syncRoutes, tokenRoutes, hashToken, SCOPE_ROUTES } from './routes/sync.js';
+import { notificationRoutes } from './routes/notifications.js';
 import { mcpRoutes } from './mcp/route.js';
 import { docsHtml, openapi } from './openapi.js';
 
@@ -80,8 +81,8 @@ export async function buildApp(opts: AppOptions) {
       );
       if (!rows[0]) return reply.code(401).send({ error: 'Chave de sincronização inválida ou revogada.' });
       const route = `${req.method} ${req.routeOptions.url ?? req.url.split('?')[0]}`;
-      if (rows[0].scope !== 'sync' || !TOKEN_ROUTES.has(route)) {
-        return reply.code(403).send({ error: 'Esta chave só pode enviar lançamentos do banco.' });
+      if (!SCOPE_ROUTES[rows[0].scope]?.has(route)) {
+        return reply.code(403).send({ error: 'Esta chave não vale para esta rota.' });
       }
       req.user = { sub: rows[0].user_id };
       return;
@@ -127,6 +128,7 @@ export async function buildApp(opts: AppOptions) {
   await app.register(importExportRoutes, { prefix: '/api' });
   await app.register(tokenRoutes, { prefix: '/api/tokens' });
   await app.register(syncRoutes, { prefix: '/api/sync' });
+  await app.register(notificationRoutes, { prefix: '/api/notifications' });
   await app.register(assistantRoutes, {
     prefix: '/api/assistant',
     secretBox: createSecretBox(opts.aiKeySecret ?? opts.jwtSecret),
