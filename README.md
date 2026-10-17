@@ -26,6 +26,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Lançamento rápido pelo celular**: teclado numérico, categorias em botões, data já preenchida. O atalho do ícone instalado abre direto o formulário.
 - **Gastos fixos e parcelas**: marque um lançamento como fixo e copie todos para o mês seguinte com um toque. Descrições como `Financiamento (10/48)` avançam sozinhas para `(11/48)`, e a parcela final não é copiada.
 - **Para onde foi**: total e percentual por categoria, histórico de seis meses e busca com filtro.
+- **Metas por categoria**: um limite mensal por categoria de saída (mercado até R$ 800, por exemplo), com barra de andamento na tela do mês. O app avisa uma vez quando a categoria chega a 80% e outra quando atinge a meta, venha o gasto do formulário, do chat ou do banco. No chat dá para perguntar "quanto ainda posso gastar no mercado?" (a resposta inclui quanto dá por dia até o fim do mês) ou pedir "quero gastar no máximo 800 com mercado".
 - **Importação da planilha**: CSV com Data, Categoria, Descrição, Entrada e Saída (ou extrato com coluna Valor). Mostra uma prévia, aponta linhas com erro, cria categorias novas e não duplica o que já foi importado.
 - **Exportação** no mesmo formato da planilha.
 - **Cada um usa a própria IA**: em Ajustes, a pessoa escolhe Claude, ChatGPT ou Gemini e cola a chave dela. A chave é testada antes de ser salva, fica criptografada no servidor e nunca volta para o aparelho. Sem chave, o assistente funciona no modo simples.
@@ -42,7 +43,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
 | Android | Capacitor 8, APK montado e publicado pelo GitHub Actions |
 | IA | Claude (Messages API), ChatGPT (Responses API) e Gemini (generateContent), com a chave de cada usuário, todos com chamada de ferramentas. Sem SDKs: um adaptador fino por provedor sobre `fetch` |
-| Qualidade | Vitest (109 testes de API, interpretador de frases, adaptadores das IAs e assistente com IA simulada), GitHub Actions com PostgreSQL 16 real |
+| Qualidade | Vitest (135 testes: API, metas, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz e botão voltar), GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
@@ -51,7 +52,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **SQL escrito à mão em vez de ORM.** Os relatórios usam `sum(...) filter (where ...)`, `generate_series` para meses sem lançamento e `date_trunc`. Fica legível e mostra o que o banco está fazendo.
 - **Uma interface `Db`, dois motores.** A mesma API roda em PostgreSQL (produção) ou PGlite (local e testes). Quem clona o repositório roda `npm run dev` e já tem um Postgres funcionando.
 - **Isolamento por usuário em toda consulta.** Todo `select`, `update` e `delete` filtra por `user_id`, e há teste garantindo que um usuário não lê nem apaga dado de outro, nem usa a categoria de outro.
-- **A IA não toca no banco.** O modelo só pode chamar cinco ferramentas (`registrar_lancamentos`, `corrigir_lancamento`, `excluir_lancamento`, `consultar_lancamentos`, `resumo_do_mes`). Quem valida valor, data e categoria e escreve no PostgreSQL é o código da API, sempre com o `user_id` de quem está logado. Ele recebe no prompt a data de hoje e as categorias do usuário, e o laço de ferramentas tem limite de rodadas.
+- **A IA não toca no banco.** O modelo só pode chamar sete ferramentas (`registrar_lancamentos`, `corrigir_lancamento`, `excluir_lancamento`, `consultar_lancamentos`, `consultar_metas`, `definir_meta`, `resumo_do_mes`). Quem valida valor, data e categoria e escreve no PostgreSQL é o código da API, sempre com o `user_id` de quem está logado. Ele recebe no prompt a data de hoje e as categorias do usuário, e o laço de ferramentas tem limite de rodadas.
 - **A IA conhece o usuário.** O prompt leva os hábitos de categoria dele (a "Padaria do Zé" que ele sempre lança em Lazer), os últimos lançamentos com id (para corrigir e apagar o certo) e um calendário dos últimos dez dias, para "sexta passada" nunca virar a data errada.
 - **Três IAs, uma interface.** Claude, ChatGPT e Gemini falam formatos diferentes de chamada de ferramentas. Cada um tem um adaptador pequeno que traduz para a mesma interface (`start` e `continue`), então o laço do assistente não sabe com qual IA está falando. No Gemini, o conteúdo do modelo volta intacto a cada rodada para preservar as *thought signatures*; no ChatGPT, as rodadas são encadeadas por `previous_response_id`.
 - **Chave do usuário guardada com cuidado.** AES-256-GCM com um segredo do servidor (`AI_KEY_SECRET`); a chave é validada listando os modelos do provedor (não gasta tokens) e só os quatro últimos caracteres voltam para a tela.
@@ -59,6 +60,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Sincronização idempotente.** Cada id de transação do banco fica numa tabela de referências (`bank_refs`) que pode apontar vários ids para o mesmo lançamento, porque o banco troca o id quando a compra sai de pendente. Antes de criar, o servidor procura um lançamento do mesmo tipo e valor até 3 dias de distância feito à mão (conciliação). Apagar um lançamento importado deixa a referência sem alvo, então ele não volta na sincronização seguinte.
 - **Chave de menor privilégio.** A chave da tarefa agendada (`saldo_…`) é guardada só como hash SHA-256, aparece uma única vez e só é aceita em `POST /api/sync/bank` e `GET /api/sync/status`; qualquer outra rota responde 403.
 - **Limite de uso.** Cada usuário tem um teto de mensagens por hora (`ASSISTANT_HOURLY_LIMIT`), que protege o servidor e a conta de IA dele contra laços.
+- **Aviso de meta que não se repete.** A faixa de cada meta (0, 80 ou 100%) é calculada na hora a partir dos lançamentos, e os avisos já dados ficam numa tabela (`budget_alerts`) por categoria, mês e faixa. Assim o aviso aparece uma única vez, não importa por onde o gasto entrou (inclusive pela sincronização com o banco, com o app fechado), e mudar a meta recomeça a contagem.
 - **Importação idempotente com prévia.** O CSV é validado linha a linha antes de gravar, e lançamentos idênticos são pulados. Dá para importar o mesmo mês duas vezes sem bagunçar nada.
 
 ## Rodando localmente
@@ -87,7 +89,7 @@ Para usar um PostgreSQL de verdade: `docker compose up -d` e rode com `DATABASE_
 Para abrir no celular na mesma rede Wi-Fi, use o endereço `Network` que o Vite mostra no terminal.
 
 ```bash
-npm test          # testes da API
+npm test          # testes da API e do app
 npm run typecheck # tipos da API e do front
 npm run build     # build de produção
 ```
@@ -134,9 +136,12 @@ Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorizatio
 | POST | `/api/transactions/copy-fixed` | Copia os fixos de um mês para outro, avançando parcelas |
 | GET | `/api/summary?month=AAAA-MM` | Totais, comparação com o mês anterior e total por categoria |
 | GET | `/api/summary/history?month=AAAA-MM&months=6` | Série mensal de entradas e saídas |
+| GET | `/api/budgets?month=AAAA-MM` | Metas do mês: limite, gasto, quanto resta e faixa (0, 80 ou 100) |
+| PUT | `/api/budgets/:categoryId` | Define (`budgetCents`) ou remove (`null`) a meta de uma categoria de saída |
+| POST | `/api/budgets/alerts` | Avisos de 80% e 100% ainda não mostrados no mês (cada um sai uma vez) |
 | POST | `/api/import/csv` | Prévia (`dryRun: true`) ou importação do CSV |
 | GET | `/api/export.csv?year=AAAA` | CSV no formato da planilha |
-| POST | `/api/assistant/chat` | Mensagem para o assistente; devolve a resposta e os lançamentos criados, corrigidos e excluídos |
+| POST | `/api/assistant/chat` | Mensagem para o assistente; devolve a resposta, os lançamentos criados, corrigidos e excluídos e os avisos de meta |
 | GET | `/api/assistant/status` | Se o assistente está com IA (e qual) ou no modo simples |
 | GET, POST, DELETE | `/api/tokens` | Chaves de sincronização (criar, listar, revogar) |
 | POST | `/api/sync/bank` | Recebe transações do banco (com a chave de sincronização) |
@@ -145,7 +150,6 @@ Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorizatio
 
 ## Próximos passos
 
-- Metas e limites por categoria, com aviso quando passar de 80%.
 - Importação de OFX do banco.
 - Sincronização offline de lançamentos feitos sem internet.
 

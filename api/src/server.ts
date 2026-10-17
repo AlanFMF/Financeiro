@@ -6,6 +6,7 @@ import { ZodError } from 'zod';
 import type { Db } from './db.js';
 import { authRoutes } from './routes/auth.js';
 import { categoryRoutes } from './routes/categories.js';
+import { budgetRoutes } from './routes/budgets.js';
 import { transactionRoutes } from './routes/transactions.js';
 import { summaryRoutes } from './routes/summary.js';
 import { importExportRoutes } from './routes/import-export.js';
@@ -97,6 +98,7 @@ export async function buildApp(opts: AppOptions) {
   await app.register(categoryRoutes, { prefix: '/api/categories' });
   await app.register(transactionRoutes, { prefix: '/api/transactions' });
   await app.register(summaryRoutes, { prefix: '/api/summary' });
+  await app.register(budgetRoutes, { prefix: '/api/budgets' });
   await app.register(importExportRoutes, { prefix: '/api' });
   await app.register(tokenRoutes, { prefix: '/api/tokens' });
   await app.register(syncRoutes, { prefix: '/api/sync' });

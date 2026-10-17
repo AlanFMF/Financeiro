@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { api, ApiError, type Transaction } from '../api';
+import { api, ApiError, type BudgetAlert, type Transaction } from '../api';
 import { dayLabel, money, todayIso } from '../format';
 import { useInvalidate } from '../queries';
 import { IconChat, IconChevronUp, IconClose, IconLock, IconMic, IconSend, IconTrash } from './Icons';
 import { CANCEL_DISTANCE, LOCK_DISTANCE, formatElapsed, useVoiceRecorder } from '../useVoiceRecorder';
 import { useEditor } from './Layout';
 import { useBackHandler } from '../backButton';
+import { BudgetAlertCard } from './Budgets';
+import { vibrate } from '../speech';
 
 interface ChatMessage {
   id: number;
@@ -16,6 +18,7 @@ interface ChatMessage {
   transactions?: Transaction[];
   updated?: Transaction[];
   deleted?: Transaction[];
+  alerts?: BudgetAlert[];
   error?: boolean;
 }
 
@@ -24,6 +27,7 @@ interface ChatResponse {
   transactions: Transaction[];
   updated?: Transaction[];
   deleted?: Transaction[];
+  alerts?: BudgetAlert[];
   mode: 'ia' | 'simples';
 }
 
@@ -32,9 +36,9 @@ const PROVIDER_LABEL = { claude: 'Claude', openai: 'ChatGPT', gemini: 'Gemini' }
 const SUGGESTIONS_IA = [
   'Mercado deu 230, mas 40 foi ração',
   'Comprei um tênis de 600 em 6x no cartão',
-  'Quanto gastei com alimentação este mês?'
+  'Quanto ainda posso gastar no mercado?'
 ];
-const SUGGESTIONS_SIMPLE = ['Gastei 45,90 no mercado ontem', 'Paguei 150 de condomínio e 300 de luz', 'Comprei um tênis de 600 em 6x'];
+const SUGGESTIONS_SIMPLE = ['Gastei 45,90 no mercado ontem', 'Paguei 150 de condomínio e 300 de luz', 'Quanto ainda posso gastar no mercado?'];
 
 function loadHistory(): ChatMessage[] {
   try {
@@ -98,11 +102,20 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
       const r = await api.post<ChatResponse>('/assistant/chat', { messages: history, today: todayIso() });
       setMessages((m) => [
         ...m,
-        { id: Date.now() + 1, role: 'assistant', content: r.reply, transactions: r.transactions, updated: r.updated, deleted: r.deleted }
+        {
+          id: Date.now() + 1,
+          role: 'assistant',
+          content: r.reply,
+          transactions: r.transactions,
+          updated: r.updated,
+          deleted: r.deleted,
+          alerts: r.alerts
+        }
       ]);
       // Item apagado agora aparece riscado também no cartão da mensagem em que foi criado.
       if (r.deleted?.length) setUndone((s) => new Set([...s, ...r.deleted!.map((t) => t.id)]));
       if (r.transactions.length || r.updated?.length || r.deleted?.length) await invalidate();
+      if (r.alerts?.length) vibrate(r.alerts.some((a) => a.level === 100) ? 120 : 60);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Não consegui falar com o servidor.';
       setMessages((m) => [...m, { id: Date.now() + 1, role: 'assistant', content: msg, error: true }]);
@@ -265,6 +278,9 @@ export function AssistantChat({ open, onOpenChange }: { open: boolean; onOpenCha
                     })}
                   </ul>
                 )}
+                {m.alerts?.map((a) => (
+                  <BudgetAlertCard key={`${a.categoryId}-${a.level}`} alert={a} />
+                ))}
               </div>
             </div>
           ))}

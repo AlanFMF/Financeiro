@@ -38,4 +38,9 @@ jobs:
         run: |
           node api/dist/index.js &
           for i in $(seq 1 20); do curl -sf localhost:3333/api/health && break; sleep 1; done
-          curl -sf -XPOST localhost:3333/api/auth/demo -H 'content-type: application/json' -d '{}' > /dev/null
+          TOKEN=$(curl -sf -XPOST localhost:3333/api/auth/demo -H 'content-type: application/json' -d '{}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
+          MES=$(date +%Y-%m)
+          curl -sf "localhost:3333/api/budgets?month=$MES" -H "authorization: Bearer $TOKEN" | grep -q '"budgetCents"'
+          curl -sf -XPOST localhost:3333/api/budgets/alerts -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d "{\"month\":\"$MES\"}" > /dev/null
+          curl -sf -XPOST localhost:3333/api/assistant/chat -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+            -d '{"messages":[{"role":"user","content":"quanto ainda posso gastar no mercado?"}]}' | grep -q 'Alimentação'

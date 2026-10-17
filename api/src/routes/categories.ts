@@ -18,7 +18,7 @@ const updateBody = z.object({
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
-const SELECT = `select c.id, c.name, c.kind, c.color, c.position, c.archived,
+const SELECT = `select c.id, c.name, c.kind, c.color, c.position, c.archived, c.budget_cents as "budgetCents",
   (select count(*)::int from transactions t where t.category_id = c.id) as "transactionCount"
   from categories c`;
 

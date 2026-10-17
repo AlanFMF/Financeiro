@@ -117,6 +117,25 @@ export interface Category {
   position: number;
   archived: boolean;
   transactionCount: number;
+  /** Meta mensal de gasto (só categorias de saída). */
+  budgetCents: number | null;
+}
+
+export interface Budget {
+  categoryId: number;
+  name: string;
+  color: string;
+  budgetCents: number;
+  spentCents: number;
+  remainingCents: number;
+  pct: number;
+  level: 0 | 80 | 100;
+}
+
+export interface BudgetAlert {
+  categoryId: number;
+  level: 80 | 100;
+  message: string;
 }
 
 export interface Transaction {

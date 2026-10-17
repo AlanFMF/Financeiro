@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { api, type Category, type HistoryPoint, type Summary, type Transaction } from './api';
+import { api, type Budget, type Category, type HistoryPoint, type Summary, type Transaction } from './api';
 import { currentMonth } from './format';
 
 /** Mês selecionado fica na URL (?mes=2026-10), assim o botão voltar e o compartilhar funcionam. */
@@ -35,6 +35,12 @@ export const useHistory = (month: string, months = 6) =>
     queryFn: () => api.get<{ series: HistoryPoint[] }>(`/summary/history?month=${month}&months=${months}`).then((r) => r.series)
   });
 
+export const useBudgets = (month: string) =>
+  useQuery({
+    queryKey: ['budgets', month],
+    queryFn: () => api.get<{ budgets: Budget[] }>(`/budgets?month=${month}`).then((r) => r.budgets)
+  });
+
 export const useTransactions = (filters: { month?: string; categoryId?: number; q?: string }) => {
   const qs = new URLSearchParams();
   if (filters.month) qs.set('month', filters.month);
@@ -51,7 +57,7 @@ export function useInvalidate() {
   const qc = useQueryClient();
   return () =>
     Promise.all(
-      ['transactions', 'summary', 'history', 'categories'].map((k) => qc.invalidateQueries({ queryKey: [k] }))
+      ['transactions', 'summary', 'history', 'categories', 'budgets', 'budget-alerts'].map((k) => qc.invalidateQueries({ queryKey: [k] }))
     );
 }
 

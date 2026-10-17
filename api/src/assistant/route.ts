@@ -6,9 +6,10 @@ import type { SecretBox } from '../lib/secret.js';
 import { TX_SELECT } from '../routes/transactions.js';
 import { buildSystemPrompt } from './prompt.js';
 import { PROVIDERS, ProviderError, type ProviderFactory, type ProviderId, type ToolResult, type Turn } from './providers.js';
-import { isDeleteLastCommand, parseByRules, type HistoryHint } from './rules.js';
+import { isDeleteLastCommand, parseBudgetQuestion, parseByRules, type HistoryHint } from './rules.js';
+import { alertMessage, budgetStatus, remainingMessage, takeAlerts } from '../lib/budgets.js';
 import { loadHabits } from '../lib/habits.js';
-import { TOOLS, insertTransaction, runTool, type CategoryRow, type CreatedTransaction, type ToolContext } from './tools.js';
+import { TOOLS, findExpenseCategory, insertTransaction, runTool, type CategoryRow, type CreatedTransaction, type ToolContext } from './tools.js';
 
 export interface AssistantOptions {
   secretBox: SecretBox;
@@ -185,44 +186,76 @@ export const assistantRoutes: FastifyPluginAsync<AssistantOptions> = async (app,
       req.log.warn({ err, provider: settings.provider }, 'falha na IA do usuário');
       if (ctx.created.length || ctx.updated.length || ctx.deleted.length) {
         // O que já foi gravado continua valendo; só a frase final não veio.
-        return { reply: 'Fiz as mudanças abaixo, mas a IA parou de responder antes de terminar.', ...changes(ctx), mode: 'ia' };
+        return respond(ctx, 'Fiz as mudanças abaixo, mas a IA parou de responder antes de terminar.', 'ia');
       }
       throw toHttpError(err);
     }
 
     if (!reply) reply = ctx.created.length || ctx.updated.length || ctx.deleted.length ? 'Pronto.' : 'Não consegui entender. Pode dizer o valor e o que foi?';
-    return { reply, ...changes(ctx), mode: 'ia' };
+    return respond(ctx, reply, 'ia');
   });
 };
 
 const changes = (ctx: ToolContext) => ({ transactions: ctx.created, updated: ctx.updated, deleted: ctx.deleted });
+
+/** Resposta do chat. Se algum lançamento levou uma meta a 80% ou 100%, o aviso vai junto (e não se repete depois). */
+async function respond(ctx: ToolContext, reply: string, mode: 'ia' | 'simples') {
+  const touched = ctx.created.length + ctx.updated.length > 0;
+  const alerts = touched ? await takeAlerts(ctx.db, ctx.userId, ctx.today.slice(0, 7)).catch(() => []) : [];
+  return {
+    reply,
+    ...changes(ctx),
+    alerts: alerts.map((a) => ({ categoryId: a.categoryId, level: a.level, message: alertMessage(a) })),
+    mode
+  };
+}
+
+/** "quanto ainda posso gastar em mercado?" sem IA conectada. */
+async function answerBudgetQuestion(ctx: ToolContext, category: string) {
+  const month = ctx.today.slice(0, 7);
+  let ids: number[] | undefined;
+  if (category) {
+    const cat = findExpenseCategory(ctx.categories, category);
+    if (!cat)
+      return `Não achei a categoria "${category}". Suas categorias de saída: ${ctx.categories
+        .filter((c) => c.kind === 'saida')
+        .map((c) => c.name)
+        .join(', ')}.`;
+    ids = [cat.id];
+  }
+  const status = await budgetStatus(ctx.db, ctx.userId, month, ids);
+  if (!status.length) {
+    return category
+      ? 'Essa categoria ainda não tem meta. Defina em Ajustes, na parte Metas por categoria.'
+      : 'Você ainda não tem metas. Defina em Ajustes, na parte Metas por categoria.';
+  }
+  return status.map((s) => remainingMessage(s, ctx.today, month)).join('\n');
+}
 
 async function simpleMode(ctx: ToolContext, message: string, habits: HistoryHint[]) {
   if (isDeleteLastCommand(message)) {
     const last = (
       await ctx.db.query<CreatedTransaction>(`${TX_SELECT} where t.user_id = $1 order by t.created_at desc, t.id desc limit 1`, [ctx.userId])
     ).rows[0];
-    if (!last) return { reply: 'Você ainda não tem lançamentos.', ...changes(ctx), mode: 'simples' };
+    if (!last) return respond(ctx, 'Você ainda não tem lançamentos.', 'simples');
     await ctx.db.query('delete from transactions where id = $1 and user_id = $2', [last.id, ctx.userId]);
     ctx.deleted.push(last);
-    return { reply: `Apaguei o último lançamento: ${last.description || last.categoryName}.`, ...changes(ctx), mode: 'simples' };
+    return respond(ctx, `Apaguei o último lançamento: ${last.description || last.categoryName}.`, 'simples');
   }
+
+  const question = parseBudgetQuestion(message);
+  if (question) return respond(ctx, await answerBudgetQuestion(ctx, question.category), 'simples');
 
   const items = parseByRules(message, ctx.today, habits);
   if (!items.length) {
-    return {
-      reply:
-        'Não achei um valor nessa frase. Tente algo como "gastei 45,90 no mercado ontem" ou "recebi 4.200 de salário". Para corrigir lançamentos ou fazer perguntas, conecte sua IA em Ajustes.',
-      ...changes(ctx),
-      mode: 'simples'
-    };
+    return respond(
+      ctx,
+      'Não achei um valor nessa frase. Tente algo como "gastei 45,90 no mercado ontem" ou "recebi 4.200 de salário". Para corrigir lançamentos ou fazer perguntas, conecte sua IA em Ajustes.',
+      'simples'
+    );
   }
   for (const it of items) await insertTransaction(ctx, it);
   const fmt = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const parts = ctx.created.map((t) => `${fmt(t.amountCents)} em ${t.categoryName}`);
-  return {
-    reply: `Lancei ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} e ${parts.at(-1)}` : parts[0]}.`,
-    ...changes(ctx),
-    mode: 'simples'
-  };
+  return respond(ctx, `Lancei ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} e ${parts.at(-1)}` : parts[0]}.`, 'simples');
 }

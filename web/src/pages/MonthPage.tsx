@@ -6,6 +6,7 @@ import { useHistory, useInvalidate, useMonth, useSummary, useTransactions } from
 import { MonthSwitcher } from '../components/MonthSwitcher';
 import { TransactionList } from '../components/TransactionList';
 import { useEditor } from '../components/Layout';
+import { BudgetPanel } from '../components/Budgets';
 
 export function MonthPage() {
   const [month] = useMonth();
@@ -39,6 +40,7 @@ export function MonthPage() {
       <div className="month-grid">
         <div className="col">
           <BalanceHero s={s} loading={summary.isLoading} />
+          <BudgetPanel month={month} />
 
           {isEmpty ? (
             <section className="panel empty-month">

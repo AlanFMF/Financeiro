@@ -5,6 +5,7 @@ import { useAuth } from '../auth';
 import { IconImport, IconList, IconMonth, IconPlus, IconSettings } from './Icons';
 import { TransactionSheet } from './TransactionSheet';
 import { AssistantChat } from './AssistantChat';
+import { BudgetAlerts } from './Budgets';
 
 interface EditorState {
   open: (tx?: Transaction) => void;
@@ -73,6 +74,7 @@ export function Layout() {
               Você está na demonstração. Os dados são fictícios e somem em 24 horas.
             </p>
           )}
+          <BudgetAlerts />
           <Outlet />
         </main>
 

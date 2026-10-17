@@ -97,6 +97,8 @@ describe('assistente com IA', () => {
       'corrigir_lancamento',
       'excluir_lancamento',
       'consultar_lancamentos',
+      'consultar_metas',
+      'definir_meta',
       'resumo_do_mes'
     ]);
     await ctx.close();

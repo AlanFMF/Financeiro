@@ -6,6 +6,8 @@ import { useCategories, useInvalidate } from '../queries';
 import { useEditor } from '../components/Layout';
 import { AiSettings } from '../components/AiSettings';
 import { SyncSettings } from '../components/SyncSettings';
+import { BudgetSettings } from '../components/Budgets';
+import { useLocation } from 'react-router-dom';
 
 type InstallEvent = Event & { prompt: () => Promise<void> };
 
@@ -15,7 +17,14 @@ export function SettingsPage() {
   const { toast } = useEditor();
   const [installEvent, setInstallEvent] = useState<InstallEvent | null>(null);
   const [exportYear, setExportYear] = useState(new Date().getFullYear());
+  const { hash } = useLocation();
   const standalone = typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches;
+
+  // Links como /ajustes#metas levam direto à seção.
+  useEffect(() => {
+    if (!hash || !categories.length) return;
+    document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [hash, categories.length]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -60,6 +69,8 @@ export function SettingsPage() {
 
       <AiSettings />
       {!user?.isDemo && <SyncSettings />}
+
+      <BudgetSettings categories={categories} />
 
       <CategoryManager kind="saida" title="Categorias de saída" categories={categories} />
       <CategoryManager kind="entrada" title="Categorias de entrada" categories={categories} />

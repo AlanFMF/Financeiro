@@ -373,6 +373,45 @@ export function isDeleteLastCommand(message: string) {
   );
 }
 
+/**
+ * Pergunta sobre metas, sem valor na frase: "quanto ainda posso gastar em mercado?", "quanto falta pra meta de lazer?",
+ * "como estão minhas metas?". Devolve a categoria citada (texto livre) ou '' para todas; null se não for pergunta de meta.
+ */
+export function parseBudgetQuestion(message: string): { category: string } | null {
+  const f = flat(message)
+    .replace(/[?!.]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (/\d/.test(f)) return null;
+  const tail = (s: string) =>
+    s
+      .replace(/^(?:(?:a )?meta|(?:o )?limite|(?:o )?orcamento) (?:de|do|da|em|no|na|com|pra|para)\s+/, '')
+      .replace(/^(o|a|os|as|meu|minha|meus|minhas)\s+/, '')
+      .replace(/\s+(esse|este|neste|nesse) mes$|\s+(no|do|este|esse) mes$/, '')
+      .trim();
+
+  let m = f.match(
+    /\bquanto (?:ainda )?(?:eu )?(?:posso|consigo|da para|da pra|tenho para|tenho pra|ainda tenho para|ainda tenho pra) gastar (?:em|no|na|nos|nas|com|de|do|da)\s+(.+)$/
+  );
+  if (m) return { category: tail(m[1]) };
+  m = f.match(
+    /\bquanto (?:ainda )?(?:me )?(?:resta|sobra|falta|sobrou|restou)(?: para| pra)?(?: gastar)?(?: (?:a|da|na) meta| (?:o|do|no) limite)? (?:em|no|na|com|de|do|da|para|pra|pro)\s+(.+)$/
+  );
+  if (m) return { category: tail(m[1]) };
+  m = f.match(
+    /\bquanto falta (?:para|pra) (?:bater |atingir |estourar )?(?:a meta|o limite|o orcamento)(?: (?:de|do|da|em|no|na|com))?\s+(.+)$/
+  );
+  if (m) return { category: tail(m[1]) };
+  if (
+    /\b(como (estao|esta|vao|vai)|ver|mostra|mostre|quais sao|resumo d[ao]s?) (as |a |os |o )?(minhas |minha |meus |meu )?(metas?|limites?|orcamentos?)\b/.test(
+      f
+    )
+  )
+    return { category: '' };
+  if (/^(minhas |as )?metas?$/.test(f)) return { category: '' };
+  return null;
+}
+
 export function parseByRules(message: string, today: string, history: HistoryHint[] = []): RuleItem[] {
   const base = normalizeAmounts(message.normalize('NFC').toLowerCase().replace(/[ \t]+/g, ' ').trim());
   const fixedAll = /\b(todo mes|todos os meses|mensalmente|por mes)\b/.test(flat(base));

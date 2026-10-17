@@ -16,11 +16,12 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 
 ## Features
 
-- AI assistant in the corner: type or speak "spent 45.90 at the market and 120 on gas yesterday" (in Portuguese) and it books both entries in the right categories and dates, each with Edit and Undo. It also answers questions about your spending. Each user connects their own AI in Settings (Claude, ChatGPT or Gemini) with their own API key, which is verified, stored encrypted (AES-256-GCM) and never sent back to the device. The model can only call five server-side tools (book, correct, delete, query, summarize), and the API validates and writes everything scoped to the logged-in user. Without a key it falls back to a rule-based parser.
+- AI assistant in the corner: type or speak "spent 45.90 at the market and 120 on gas yesterday" (in Portuguese) and it books both entries in the right categories and dates, each with Edit and Undo. It also answers questions about your spending. Each user connects their own AI in Settings (Claude, ChatGPT or Gemini) with their own API key, which is verified, stored encrypted (AES-256-GCM) and never sent back to the device. The model can only call seven server-side tools (book, correct, delete, query, check budgets, set a budget, summarize), and the API validates and writes everything scoped to the logged-in user. Without a key it falls back to a rule-based parser.
 - Monthly balance front and centre, with a bar showing how much of the income has already been spent and a comparison with last month.
 - Fast mobile entry: numeric keypad, category chips, pre-filled date, and a home-screen shortcut straight to the form.
 - Recurring items and installments: copy fixed entries to the next month in one tap; `Loan (10/48)` becomes `(11/48)` automatically and the final installment is not copied again.
 - Spending by category, six-month history, search and filters.
+- Category budgets: a monthly limit per expense category with a progress bar on the month screen. The app warns once at 80% and once when the limit is reached, whether the spending came from the form, the chat or the bank sync. In the chat you can ask how much is left in a category (with a per-day allowance until month end) or set a budget.
 - CSV import with preview, per-line validation, automatic category creation and duplicate detection; CSV export in the spreadsheet format.
 - Daily bank sync: a scheduled Claude task reads the checking account and credit card through Open Finance and posts them with a least-privilege token. The server cleans statement descriptions, categorizes by the user's habits and the bank's category, and deduplicates against manual entries, pending-to-posted id changes and card bill payments.
 - Android APK built and published by GitHub Actions on every push (Capacitor 8), plus an installable PWA. Automatic dark mode, mobile-first layout.
@@ -32,7 +33,7 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 - **Database:** PostgreSQL 16 with hand-written SQL and versioned migrations. Local development and tests run on PGlite (Postgres compiled to WASM), so nothing needs installing.
 - **Frontend:** React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa.
 - **AI:** bring-your-own-key for Claude (Messages API), ChatGPT (Responses API) and Gemini (generateContent), each behind a thin `fetch` adapter with a shared tool-calling interface; per-user hourly limits.
-- **Quality:** Vitest (109 tests, including the sentence parser, the three AI adapters against recorded request/response shapes, and the assistant against a scripted fake AI), GitHub Actions against a real PostgreSQL 16.
+- **Quality:** Vitest (135 tests, including the sentence parser, the three AI adapters against recorded request/response shapes, and the assistant against a scripted fake AI), GitHub Actions against a real PostgreSQL 16.
 - **Hosting:** Vercel (frontend), Render (API), Neon (database), all on free tiers.
 
 ## Design decisions

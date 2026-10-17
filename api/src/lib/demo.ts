@@ -78,6 +78,10 @@ export async function createDemoUser(db: Db) {
         [user.id, categoryId, date, description, amount, fixed]
       );
     }
+    // Metas de exemplo, para a demo já mostrar as barras e os avisos.
+    for (const [name, cents] of [['Alimentação', 1500_00], ['Transporte', 1300_00], ['Lazer', 300_00]] as const) {
+      await tx.query('update categories set budget_cents = $3 where user_id = $1 and name = $2', [user.id, name, cents]);
+    }
     return user;
   });
 }

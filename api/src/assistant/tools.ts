@@ -3,6 +3,8 @@ import type { Db } from '../db.js';
 import { normalize } from '../lib/csv.js';
 import { MONTH_RE, monthStart } from '../lib/money.js';
 import { TX_SELECT } from '../routes/transactions.js';
+import { budgetStatus, remainingMessage } from '../lib/budgets.js';
+import { keywordCategory } from './rules.js';
 
 export interface CategoryRow {
   id: number;
@@ -101,6 +103,30 @@ export const TOOLS: ToolDef[] = [
     }
   },
   {
+    name: 'consultar_metas',
+    description:
+      'Metas de gasto do mês atual: limite, quanto já foi gasto e quanto ainda dá para gastar. Use para "quanto ainda posso gastar em mercado?", "como estão minhas metas?".',
+    parameters: {
+      type: 'object',
+      properties: {
+        categoria: { type: 'string', description: 'Categoria de saída (ou o que o usuário disse, ex.: "mercado"). Omita para ver todas.' }
+      }
+    }
+  },
+  {
+    name: 'definir_meta',
+    description:
+      'Define a meta mensal de gasto de uma categoria de saída quando o usuário pedir ("quero gastar no máximo 800 com mercado"). Valor 0 remove a meta.',
+    parameters: {
+      type: 'object',
+      properties: {
+        categoria: { type: 'string', description: 'Categoria de saída' },
+        valor: { type: 'number', description: 'Limite por mês em reais; 0 para remover' }
+      },
+      required: ['categoria', 'valor']
+    }
+  },
+  {
     name: 'resumo_do_mes',
     description: 'Totais de entradas, saídas, saldo e total por categoria de um mês.',
     parameters: {
@@ -140,6 +166,18 @@ export async function insertTransaction(
   const tx = (await ctx.db.query<CreatedTransaction>(`${TX_SELECT} where t.id = $1`, [rows[0].id])).rows[0];
   ctx.created.push(tx);
   return tx;
+}
+
+/** Categoria de saída pelo nome ou por uma palavra do dia a dia ("mercado" vira Alimentação). Sem palpite: devolve null. */
+export function findExpenseCategory(categories: CategoryRow[], text: string): CategoryRow | null {
+  const n = normalize(text);
+  if (!n) return null;
+  const out = categories.filter((c) => c.kind === 'saida');
+  const byName =
+    out.find((c) => normalize(c.name) === n) ?? out.find((c) => normalize(c.name).includes(n) || n.includes(normalize(c.name)));
+  if (byName) return byName;
+  const kw = keywordCategory(n, 'saida');
+  return (kw && out.find((c) => normalize(c.name) === normalize(kw))) || null;
 }
 
 const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
@@ -251,6 +289,47 @@ export async function runTool(name: string, input: Input, ctx: ToolContext): Pro
       content:
         rows.map((r) => `#${r.id} | ${r.date} | ${r.kind} | ${r.categoryName} | ${r.description} | ${reais(r.amountCents)}`).join('\n') +
         `\n${rows.length} itens (limite ${limit}). Resultado líquido: ${reais(total)}`
+    };
+  }
+
+  if (name === 'consultar_metas') {
+    const month = ctx.today.slice(0, 7);
+    let ids: number[] | undefined;
+    if (typeof input.categoria === 'string' && input.categoria.trim()) {
+      const cat = findExpenseCategory(ctx.categories, input.categoria);
+      if (!cat)
+        return {
+          content: `Não achei uma categoria de saída para "${input.categoria}". Categorias: ${ctx.categories
+            .filter((c) => c.kind === 'saida')
+            .map((c) => c.name)
+            .join(', ')}.`
+        };
+      ids = [cat.id];
+    }
+    const status = await budgetStatus(ctx.db, ctx.userId, month, ids);
+    if (!status.length) {
+      return {
+        content: ids
+          ? 'Essa categoria não tem meta. O usuário pode definir em Ajustes > Metas por categoria, ou pedir aqui ("meta de 800 para mercado").'
+          : 'O usuário ainda não definiu nenhuma meta. Ele pode definir em Ajustes > Metas por categoria, ou pedir aqui.'
+      };
+    }
+    return { content: status.map((s) => remainingMessage(s, ctx.today, month)).join('\n') };
+  }
+
+  if (name === 'definir_meta') {
+    const cat = typeof input.categoria === 'string' ? findExpenseCategory(ctx.categories, input.categoria) : null;
+    if (!cat) return { content: `Não achei uma categoria de saída para "${input.categoria}".`, isError: true };
+    const cents = Math.round(Number(input.valor) * 100);
+    if (!Number.isFinite(cents) || cents < 0 || cents > 1_000_000_000)
+      return { content: `Valor inválido (${input.valor}).`, isError: true };
+    await ctx.db.query('update categories set budget_cents = $3 where id = $1 and user_id = $2', [cat.id, ctx.userId, cents || null]);
+    await ctx.db.query('delete from budget_alerts where user_id = $1 and category_id = $2', [ctx.userId, cat.id]);
+    if (!cents) return { content: `Meta de ${cat.name} removida.` };
+    const [s] = await budgetStatus(ctx.db, ctx.userId, ctx.today.slice(0, 7), [cat.id]);
+    return {
+      content:
+        `Meta de ${cat.name} definida em ${reais(cents)} por mês. ${s ? remainingMessage(s, ctx.today, ctx.today.slice(0, 7)) : ''}`.trim()
     };
   }
 
