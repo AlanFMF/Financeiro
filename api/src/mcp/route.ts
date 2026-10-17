@@ -29,9 +29,10 @@ const TITLES: Record<string, string> = {
   consultar_lancamentos: 'Consultar lançamentos',
   consultar_metas: 'Consultar metas do mês',
   definir_meta: 'Definir meta de categoria',
+  previsao_do_mes: 'Previsão do fim do mês',
   resumo_do_mes: 'Resumo do mês'
 };
-const READ_ONLY = new Set(['consultar_lancamentos', 'consultar_metas', 'resumo_do_mes']);
+const READ_ONLY = new Set(['consultar_lancamentos', 'consultar_metas', 'previsao_do_mes', 'resumo_do_mes']);
 const WRITES = new Set(['registrar_lancamentos', 'corrigir_lancamento']);
 
 /** A chave vem no cabeçalho Authorization (recomendado) ou, para clientes sem campo de cabeçalho, no caminho /mcp/<chave>. */

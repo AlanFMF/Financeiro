@@ -99,6 +99,7 @@ describe('assistente com IA', () => {
       'consultar_lancamentos',
       'consultar_metas',
       'definir_meta',
+      'previsao_do_mes',
       'resumo_do_mes'
     ]);
     await ctx.close();

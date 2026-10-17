@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { api, type HistoryPoint, type Summary } from '../api';
+import { api, type Forecast, type HistoryPoint, type Summary } from '../api';
 import { money, monthName, monthShort, percent, shiftMonth } from '../format';
 import { useHistory, useInvalidate, useMonth, useSummary, useTransactions } from '../queries';
 import { MonthSwitcher } from '../components/MonthSwitcher';
 import { TransactionList } from '../components/TransactionList';
 import { useEditor } from '../components/Layout';
 import { BudgetPanel } from '../components/Budgets';
+import { IconChevron } from '../components/Icons';
 import { ReviewPanel } from '../components/ReviewPanel';
 
 export function MonthPage() {
@@ -135,7 +136,59 @@ function BalanceHero({ s, loading }: { s?: Summary; loading: boolean }) {
           </div>
         )}
       </dl>
+
+      {s.forecast && s.forecast.daysLeft > 0 && <ForecastLine f={s.forecast} />}
     </section>
+  );
+}
+
+/** Saldo previsto para o último dia, com a conta aberta num toque. */
+function ForecastLine({ f }: { f: Forecast }) {
+  const neg = f.projectedBalanceCents < 0;
+  const end = `${Number(f.endDate.slice(8, 10))}/${f.endDate.slice(5, 7)}`;
+  return (
+    <details className="forecast" data-neg={neg}>
+      <summary>
+        <span className="forecast-label">
+          Previsão para {end}
+          <IconChevron className="forecast-chev" width={14} height={14} />
+        </span>
+        <span className="forecast-value tnum">
+          {neg && '−'}
+          {money(Math.abs(f.projectedBalanceCents))}
+        </span>
+      </summary>
+      <dl className="forecast-math">
+        <div>
+          <dt>Saldo hoje</dt>
+          <dd className="tnum">{money(f.balanceCents)}</dd>
+        </div>
+        {f.pendingIncomeCents > 0 && (
+          <div>
+            <dt>Fixos que ainda entram</dt>
+            <dd className="tnum">+ {money(f.pendingIncomeCents)}</dd>
+          </div>
+        )}
+        {f.pendingFixedExpenseCents > 0 && (
+          <div>
+            <dt>Fixos que ainda saem</dt>
+            <dd className="tnum">− {money(f.pendingFixedExpenseCents)}</dd>
+          </div>
+        )}
+        <div>
+          <dt>
+            Dia a dia ({money(f.dailyVariableCents)} por dia, {f.daysLeft} {f.daysLeft === 1 ? 'dia' : 'dias'})
+          </dt>
+          <dd className="tnum">− {money(f.remainingVariableCents)}</dd>
+        </div>
+      </dl>
+      {f.pending.length > 0 && (
+        <p className="forecast-pending muted">
+          Fixos do mês passado que ainda não apareceram: {f.pending.slice(0, 4).map((p) => p.description || p.categoryName).join(', ')}
+          {f.pending.length > 4 ? ` e mais ${f.pending.length - 4}` : ''}.
+        </p>
+      )}
+    </details>
   );
 }
 

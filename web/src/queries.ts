@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { api, type Budget, type Category, type HistoryPoint, type Summary, type Transaction } from './api';
-import { currentMonth } from './format';
+import { currentMonth, todayIso } from './format';
 
 /** Mês selecionado fica na URL (?mes=2026-10), assim o botão voltar e o compartilhar funcionam. */
 export function useMonth(): [string, (m: string) => void] {
@@ -27,7 +27,7 @@ export const useCategories = () =>
   });
 
 export const useSummary = (month: string) =>
-  useQuery({ queryKey: ['summary', month], queryFn: () => api.get<Summary>(`/summary?month=${month}`) });
+  useQuery({ queryKey: ['summary', month], queryFn: () => api.get<Summary>(`/summary?month=${month}&today=${todayIso()}`) });
 
 export const useHistory = (month: string, months = 6) =>
   useQuery({

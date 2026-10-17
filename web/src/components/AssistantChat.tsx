@@ -36,9 +36,9 @@ const PROVIDER_LABEL = { claude: 'Claude', openai: 'ChatGPT', gemini: 'Gemini' }
 const SUGGESTIONS_IA = [
   'Mercado deu 230, mas 40 foi ração',
   'Comprei um tênis de 600 em 6x no cartão',
-  'Quanto ainda posso gastar no mercado?'
+  'Vou fechar o mês no azul?'
 ];
-const SUGGESTIONS_SIMPLE = ['Gastei 45,90 no mercado ontem', 'Paguei 150 de condomínio e 300 de luz', 'Quanto ainda posso gastar no mercado?'];
+const SUGGESTIONS_SIMPLE = ['Gastei 45,90 no mercado ontem', 'Quanto ainda posso gastar no mercado?', 'Vou fechar o mês no azul?'];
 
 function loadHistory(): ChatMessage[] {
   try {

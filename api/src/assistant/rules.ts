@@ -412,6 +412,19 @@ export function parseBudgetQuestion(message: string): { category: string } | nul
   return null;
 }
 
+/** "vou fechar o mês no azul?", "quanto vai sobrar no fim do mês?", "previsão do mês". */
+export function isForecastQuestion(message: string): boolean {
+  const f = flat(message);
+  if (/\d/.test(f)) return false;
+  return (
+    /\bprevisao\b/.test(f) ||
+    /\b(vou|vamos|vai) (fechar|terminar|acabar) o mes\b/.test(f) ||
+    /\bquanto (vai|deve|vou) (sobrar|faltar)\b/.test(f) ||
+    /\b(fechar|terminar) o mes no (azul|vermelho)\b/.test(f) ||
+    /\bcomo (vou|vai) (fechar|terminar) o mes\b/.test(f)
+  );
+}
+
 export function parseByRules(message: string, today: string, history: HistoryHint[] = []): RuleItem[] {
   const base = normalizeAmounts(message.normalize('NFC').toLowerCase().replace(/[ \t]+/g, ' ').trim());
   const fixedAll = /\b(todo mes|todos os meses|mensalmente|por mes)\b/.test(flat(base));

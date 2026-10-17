@@ -4,6 +4,7 @@ import { normalize } from '../lib/csv.js';
 import { MONTH_RE, monthStart } from '../lib/money.js';
 import { TX_SELECT } from '../routes/transactions.js';
 import { budgetStatus, remainingMessage } from '../lib/budgets.js';
+import { forecastMessage, monthForecast } from '../lib/forecast.js';
 import { keywordCategory } from './rules.js';
 
 export interface CategoryRow {
@@ -125,6 +126,12 @@ export const TOOLS: ToolDef[] = [
       },
       required: ['categoria', 'valor']
     }
+  },
+  {
+    name: 'previsao_do_mes',
+    description:
+      'Saldo previsto para o último dia do mês atual: saldo de hoje, fixos que ainda faltam entrar e sair e o ritmo dos gastos do dia a dia. Use para "vou fechar o mês no azul?", "quanto vai sobrar?".',
+    parameters: { type: 'object', properties: {} }
   },
   {
     name: 'resumo_do_mes',
@@ -331,6 +338,13 @@ export async function runTool(name: string, input: Input, ctx: ToolContext): Pro
       content:
         `Meta de ${cat.name} definida em ${reais(cents)} por mês. ${s ? remainingMessage(s, ctx.today, ctx.today.slice(0, 7)) : ''}`.trim()
     };
+  }
+
+  if (name === 'previsao_do_mes') {
+    const f = await monthForecast(ctx.db, ctx.userId, ctx.today.slice(0, 7), ctx.today);
+    if (!f) return { content: 'Sem previsão para este mês.' };
+    const pending = f.pending.slice(0, 8).map((p) => `${p.kind} | ${p.description} | ${p.categoryName} | ${reais(p.amountCents)}`);
+    return { content: [forecastMessage(f), ...(pending.length ? ['Fixos que ainda faltam:', ...pending] : [])].join('\n') };
   }
 
   if (name === 'resumo_do_mes') {

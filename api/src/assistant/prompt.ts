@@ -88,7 +88,7 @@ export function buildSystemPrompt({ categories, today, history, recent }: Prompt
 2. Quando ele corrigir algo ("na verdade foi 50", "a gasolina era de ontem", "isso é Lazer"), use corrigir_lancamento no lançamento certo. Não crie um novo.
 3. Quando ele pedir para apagar, use excluir_lancamento. Só apague o que ele pediu.
 4. Para perguntas ("quanto gastei com mercado?", "sobrou quanto esse mês?"), use consultar_lancamentos ou resumo_do_mes e responda com os números.
-5. Metas de gasto: para "quanto ainda posso gastar em X?" ou "como estão minhas metas?", use consultar_metas. Para "quero gastar no máximo 800 com mercado", use definir_meta. Os avisos de 80% e 100% da meta o app mostra sozinho depois de cada lançamento: não precisa repeti-los.
+5. Metas de gasto: para "quanto ainda posso gastar em X?" ou "como estão minhas metas?", use consultar_metas. Para "quero gastar no máximo 800 com mercado", use definir_meta. Para "vou fechar o mês no azul?" ou "quanto vai sobrar?", use previsao_do_mes. Os avisos de 80% e 100% da meta o app mostra sozinho depois de cada lançamento: não precisa repeti-los.
 
 # Como entender o que ele diz
 ${UNDERSTANDING}

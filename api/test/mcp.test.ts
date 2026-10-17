@@ -41,6 +41,7 @@ describe('conector do Claude (MCP)', () => {
       'consultar_lancamentos',
       'consultar_metas',
       'definir_meta',
+      'previsao_do_mes',
       'resumo_do_mes'
     ]);
     expect(tools.find((t) => t.name === 'excluir_lancamento')?.annotations?.destructiveHint).toBe(true);

@@ -162,6 +162,21 @@ export interface Summary {
   fixedExpense: number;
   previous: { income: number; expense: number; balance: number };
   byCategory: { id: number; name: string; kind: Kind; color: string; total: number; count: number }[];
+  /** Só no mês corrente: saldo previsto para o último dia. */
+  forecast: Forecast | null;
+}
+
+export interface Forecast {
+  endDate: string;
+  daysLeft: number;
+  balanceCents: number;
+  pendingIncomeCents: number;
+  pendingFixedExpenseCents: number;
+  dailyVariableCents: number;
+  remainingVariableCents: number;
+  projectedBalanceCents: number;
+  basis: 'historico' | 'mes_atual' | 'misto';
+  pending: { description: string; categoryName: string; kind: Kind; amountCents: number }[];
 }
 
 export interface HistoryPoint {

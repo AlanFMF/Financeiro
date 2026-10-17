@@ -1,6 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { MONTH_RE, monthStart, shiftMonth } from '../lib/money.js';
+import { monthForecast } from '../lib/forecast.js';
+
+const TIME_ZONE = process.env.APP_TIMEZONE ?? 'America/Sao_Paulo';
+const localToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: TIME_ZONE }).format(new Date());
 
 const month = z.string().regex(MONTH_RE, 'Mês no formato AAAA-MM');
 
@@ -23,7 +27,9 @@ export const summaryRoutes: FastifyPluginAsync = async (app) => {
 
   /** Resumo de um mês: totais, comparação com o mês anterior e total por categoria. */
   app.get('/', async (req) => {
-    const { month: m } = z.object({ month }).parse(req.query);
+    const { month: m, today } = z
+      .object({ month, today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() })
+      .parse(req.query);
     const userId = req.user.sub;
     const current = await totals(app, userId, m);
     const previous = await totals(app, userId, shiftMonth(m, -1));
@@ -48,7 +54,9 @@ export const summaryRoutes: FastifyPluginAsync = async (app) => {
       ...current,
       fixedExpense: Number(fixed.rows[0].total),
       previous,
-      byCategory: rows.map((r) => ({ ...r, total: Number(r.total) }))
+      byCategory: rows.map((r) => ({ ...r, total: Number(r.total) })),
+      // Só para o mês corrente: saldo previsto no último dia.
+      forecast: await monthForecast(app.db, userId, m, today ?? localToday())
     };
   });
 

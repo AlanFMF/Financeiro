@@ -6,8 +6,9 @@ import type { SecretBox } from '../lib/secret.js';
 import { TX_SELECT } from '../routes/transactions.js';
 import { buildSystemPrompt } from './prompt.js';
 import { PROVIDERS, ProviderError, type ProviderFactory, type ProviderId, type ToolResult, type Turn } from './providers.js';
-import { isDeleteLastCommand, parseBudgetQuestion, parseByRules, type HistoryHint } from './rules.js';
+import { isDeleteLastCommand, isForecastQuestion, parseBudgetQuestion, parseByRules, type HistoryHint } from './rules.js';
 import { alertMessage, budgetStatus, remainingMessage, takeAlerts } from '../lib/budgets.js';
+import { forecastMessage, monthForecast } from '../lib/forecast.js';
 import { loadHabits } from '../lib/habits.js';
 import { TOOLS, findExpenseCategory, insertTransaction, runTool, type CategoryRow, type CreatedTransaction, type ToolContext } from './tools.js';
 
@@ -241,6 +242,11 @@ async function simpleMode(ctx: ToolContext, message: string, habits: HistoryHint
     await ctx.db.query('delete from transactions where id = $1 and user_id = $2', [last.id, ctx.userId]);
     ctx.deleted.push(last);
     return respond(ctx, `Apaguei o último lançamento: ${last.description || last.categoryName}.`, 'simples');
+  }
+
+  if (isForecastQuestion(message)) {
+    const f = await monthForecast(ctx.db, ctx.userId, ctx.today.slice(0, 7), ctx.today);
+    return respond(ctx, f ? forecastMessage(f) : 'Sem previsão para este mês.', 'simples');
   }
 
   const question = parseBudgetQuestion(message);
