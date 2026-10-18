@@ -50,7 +50,8 @@ export async function setupAi(factory?: ProviderFactory, verifyKey: (p: string, 
     db,
     jwtSecret: 'test',
     rateLimit: false,
-    assistant: { ...(factory ? { providerFactory: factory } : {}), verifyKey }
+    // Relógio fixo em TODAY, para "hoje", "ontem" e os dias que faltam no mês não mudarem com a data real.
+    assistant: { ...(factory ? { providerFactory: factory } : {}), verifyKey, now: () => new Date(`${TODAY}T15:00:00Z`) }
   });
   const register = async (email: string) => {
     const r = await app.inject({ method: 'POST', url: '/api/auth/register', payload: { name: 'X', email, password: '12345678' } });

@@ -20,6 +20,8 @@ export interface AssistantOptions {
   /** Mensagens por hora por usuário (protege o servidor e a conta de IA do usuário contra laços). */
   hourlyLimit: number;
   rateLimit?: boolean;
+  /** Relógio (os testes fixam a data). */
+  now?: () => Date;
 }
 
 const chatBody = z.object({
@@ -59,11 +61,16 @@ function toHttpError(err: unknown): HttpError {
   return new HttpError(502, 'A IA não respondeu. Tente de novo ou use o botão + para lançar.');
 }
 
-export const assistantRoutes: FastifyPluginAsync<AssistantOptions> = async (app, opts) => {
-  app.addHook('onRequest', app.authenticate);
+export type ChatMessage = { role: 'user' | 'assistant'; content: string };
+export type ChatResult = Awaited<ReturnType<typeof respond>>;
 
+/**
+ * O assistente, separado das rotas HTTP para servir o chat do app e o WhatsApp com as mesmas regras:
+ * limite por hora, IA do usuário (ou modo simples) e as mesmas ferramentas.
+ */
+export function createAssistant(db: Db, opts: AssistantOptions) {
   const hourly = new Map<number, number[]>();
-  const localToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: opts.timeZone }).format(new Date());
+  const localToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: opts.timeZone }).format(opts.now?.() ?? new Date());
 
   /** Aceita a data do aparelho (fuso do usuário) se estiver a no máximo 1 dia da data do servidor. */
   const resolveToday = (client?: string) => {
@@ -81,7 +88,77 @@ export const assistantRoutes: FastifyPluginAsync<AssistantOptions> = async (app,
   }
 
   const loadSettings = async (userId: number) =>
-    (await app.db.query<SettingsRow>('select provider, model, key_encrypted, key_hint from ai_settings where user_id = $1', [userId])).rows[0];
+    (await db.query<SettingsRow>('select provider, model, key_encrypted, key_hint from ai_settings where user_id = $1', [userId])).rows[0];
+
+  /** Responde a última mensagem (do usuário) de uma conversa. */
+  async function converse(userId: number, messages: ChatMessage[], clientToday?: string, log?: { warn: (o: object, m: string) => void }) {
+    const last = messages[messages.length - 1];
+    if (last?.role !== 'user') throw new HttpError(400, 'A última mensagem precisa ser do usuário.');
+    checkLimit(userId);
+
+    const categories = (
+      await db.query<CategoryRow>('select id, name, kind from categories where user_id = $1 and not archived order by kind, position', [userId])
+    ).rows;
+    const today = resolveToday(clientToday);
+    const ctx: ToolContext = { db, userId, categories, today, created: [], updated: [], deleted: [] };
+    const habits = await loadHabits(db, userId);
+
+    const settings = await loadSettings(userId);
+    if (!settings) return simpleMode(ctx, last.content, habits);
+
+    let apiKey: string;
+    try {
+      apiKey = opts.secretBox.decrypt(settings.key_encrypted);
+    } catch {
+      throw new HttpError(400, 'Não consegui ler a chave salva. Conecte a IA de novo em Ajustes.');
+    }
+
+    const recent = (
+      await db.query<CreatedTransaction>(`${TX_SELECT} where t.user_id = $1 order by t.created_at desc, t.id desc limit 12`, [userId])
+    ).rows;
+
+    // Histórico: começa sempre numa mensagem do usuário e guarda só as últimas trocas.
+    let history = messages.slice(-16);
+    while (history[0]?.role !== 'user') history = history.slice(1);
+
+    const session = opts.providerFactory({ provider: settings.provider, apiKey, model: settings.model });
+    const system = buildSystemPrompt({ categories, today, history: habits, recent });
+
+    let reply = '';
+    try {
+      let turn: Turn = await session.start({ system, history, tools: TOOLS });
+      for (let round = 0; round < MAX_TOOL_ROUNDS && turn.toolCalls.length; round++) {
+        const results: ToolResult[] = [];
+        for (const call of turn.toolCalls) {
+          const r = await runTool(call.name, call.input, ctx);
+          results.push({ call, content: r.content, isError: r.isError });
+        }
+        turn = await session.continue(results);
+      }
+      reply = turn.text;
+    } catch (err) {
+      log?.warn({ err, provider: settings.provider }, 'falha na IA do usuário');
+      if (ctx.created.length || ctx.updated.length || ctx.deleted.length) {
+        // O que já foi gravado continua valendo; só a frase final não veio.
+        return respond(ctx, 'Fiz as mudanças abaixo, mas a IA parou de responder antes de terminar.', 'ia');
+      }
+      throw toHttpError(err);
+    }
+
+    if (!reply) reply = ctx.created.length || ctx.updated.length || ctx.deleted.length ? 'Pronto.' : 'Não consegui entender. Pode dizer o valor e o que foi?';
+    return respond(ctx, reply, 'ia');
+  }
+
+  return { converse, loadSettings, checkLimit };
+}
+
+export type Assistant = ReturnType<typeof createAssistant>;
+
+export const assistantRoutes: FastifyPluginAsync<AssistantOptions & { assistant?: Assistant }> = async (app, opts) => {
+  app.addHook('onRequest', app.authenticate);
+
+  const assistant = opts.assistant ?? createAssistant(app.db, opts);
+  const loadSettings = assistant.loadSettings;
 
   const publicSettings = (s?: SettingsRow) => ({
     configured: Boolean(s),
@@ -138,62 +215,7 @@ export const assistantRoutes: FastifyPluginAsync<AssistantOptions> = async (app,
 
   app.post('/chat', async (req) => {
     const body = chatBody.parse(req.body);
-    const userId = req.user.sub;
-    const last = body.messages[body.messages.length - 1];
-    if (last.role !== 'user') throw new HttpError(400, 'A última mensagem precisa ser do usuário.');
-    checkLimit(userId);
-
-    const categories = (
-      await app.db.query<CategoryRow>('select id, name, kind from categories where user_id = $1 and not archived order by kind, position', [userId])
-    ).rows;
-    const today = resolveToday(body.today);
-    const ctx: ToolContext = { db: app.db, userId, categories, today, created: [], updated: [], deleted: [] };
-    const habits = await loadHabits(app.db, userId);
-
-    const settings = await loadSettings(userId);
-    if (!settings) return simpleMode(ctx, last.content, habits);
-
-    let apiKey: string;
-    try {
-      apiKey = opts.secretBox.decrypt(settings.key_encrypted);
-    } catch {
-      throw new HttpError(400, 'Não consegui ler a chave salva. Conecte a IA de novo em Ajustes.');
-    }
-
-    const recent = (
-      await app.db.query<CreatedTransaction>(`${TX_SELECT} where t.user_id = $1 order by t.created_at desc, t.id desc limit 12`, [userId])
-    ).rows;
-
-    // Histórico: começa sempre numa mensagem do usuário e guarda só as últimas trocas.
-    let history = body.messages.slice(-16);
-    while (history[0]?.role !== 'user') history = history.slice(1);
-
-    const session = opts.providerFactory({ provider: settings.provider, apiKey, model: settings.model });
-    const system = buildSystemPrompt({ categories, today, history: habits, recent });
-
-    let reply = '';
-    try {
-      let turn: Turn = await session.start({ system, history, tools: TOOLS });
-      for (let round = 0; round < MAX_TOOL_ROUNDS && turn.toolCalls.length; round++) {
-        const results: ToolResult[] = [];
-        for (const call of turn.toolCalls) {
-          const r = await runTool(call.name, call.input, ctx);
-          results.push({ call, content: r.content, isError: r.isError });
-        }
-        turn = await session.continue(results);
-      }
-      reply = turn.text;
-    } catch (err) {
-      req.log.warn({ err, provider: settings.provider }, 'falha na IA do usuário');
-      if (ctx.created.length || ctx.updated.length || ctx.deleted.length) {
-        // O que já foi gravado continua valendo; só a frase final não veio.
-        return respond(ctx, 'Fiz as mudanças abaixo, mas a IA parou de responder antes de terminar.', 'ia');
-      }
-      throw toHttpError(err);
-    }
-
-    if (!reply) reply = ctx.created.length || ctx.updated.length || ctx.deleted.length ? 'Pronto.' : 'Não consegui entender. Pode dizer o valor e o que foi?';
-    return respond(ctx, reply, 'ia');
+    return assistant.converse(req.user.sub, body.messages, body.today, req.log);
   });
 };
 
