@@ -41,6 +41,7 @@ export const openapi = {
     { name: 'Categorias e metas' },
     { name: 'Resumo' },
     { name: 'Assistente' },
+    { name: 'WhatsApp', description: 'Assistente pelo WhatsApp (Cloud API oficial da Meta)' },
     { name: 'Banco e conector', description: 'Chaves de menor privilégio para a tarefa agendada e para o conector do Claude' }
   ],
   security: [{ jwt: [] }],
@@ -431,6 +432,47 @@ export const openapi = {
           ),
           403: json(ref('Error'), 'Chave de outro escopo')
         }
+      }
+    },
+    '/api/whatsapp': {
+      get: {
+        tags: ['WhatsApp'],
+        summary: 'Se o WhatsApp está ligado no servidor e qual número está ligado à conta',
+        responses: {
+          200: json(
+            obj({
+              enabled: bool,
+              number: { type: ['string', 'null'] },
+              chatLink: { type: ['string', 'null'] },
+              linked: { oneOf: [obj({ number: str, linkedAt: { type: 'string', format: 'date-time' } }), { type: 'null' }] }
+            })
+          )
+        }
+      }
+    },
+    '/api/whatsapp/code': {
+      post: {
+        tags: ['WhatsApp'],
+        summary: 'Código de 6 dígitos (15 min) para ligar um número de WhatsApp à conta',
+        responses: { 200: json(obj({ code: str, expiresAt: { type: 'string', format: 'date-time' }, link: { type: ['string', 'null'] } })), 503: json(ref('Error')) }
+      }
+    },
+    '/api/whatsapp/link': {
+      delete: { tags: ['WhatsApp'], summary: 'Desligar o número de WhatsApp da conta', responses: { 204: { description: 'Desligado' } } }
+    },
+    '/api/whatsapp/webhook': {
+      get: {
+        tags: ['WhatsApp'],
+        summary: 'Verificação do webhook pela Meta (hub.mode, hub.verify_token, hub.challenge)',
+        security: [],
+        responses: { 200: { description: 'Devolve hub.challenge', content: { 'text/plain': { schema: str } } }, 403: json(ref('Error')) }
+      },
+      post: {
+        tags: ['WhatsApp'],
+        summary: 'Mensagens recebidas, assinadas pela Meta (X-Hub-Signature-256)',
+        security: [],
+        requestBody: body({ type: 'object', description: 'Notificação da WhatsApp Cloud API' }),
+        responses: { 200: { description: 'Recebido (processado em seguida)' }, 401: json(ref('Error'), 'Assinatura inválida') }
       }
     },
     '/mcp': {

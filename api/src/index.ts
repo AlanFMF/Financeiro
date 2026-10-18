@@ -40,6 +40,14 @@ const app = await buildApp({
   assistant: {
     timeZone: process.env.APP_TIMEZONE ?? 'America/Sao_Paulo',
     hourlyLimit: num(process.env.ASSISTANT_HOURLY_LIMIT, 60)
+  },
+  whatsapp: {
+    token: process.env.WHATSAPP_TOKEN,
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN,
+    appSecret: process.env.WHATSAPP_APP_SECRET,
+    displayNumber: process.env.WHATSAPP_NUMBER,
+    apiVersion: process.env.WHATSAPP_API_VERSION
   }
 });
 if (applied.length) app.log.info({ applied }, 'migrações aplicadas');

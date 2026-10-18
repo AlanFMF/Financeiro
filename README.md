@@ -38,6 +38,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Importação da planilha**: CSV com Data, Categoria, Descrição, Entrada e Saída (ou extrato com coluna Valor). Mostra uma prévia, aponta linhas com erro, cria categorias novas e não duplica o que já foi importado.
 - **Exportação** no mesmo formato da planilha.
 - **Cada um usa a própria IA**: em Ajustes, a pessoa escolhe Claude, ChatGPT ou Gemini e cola a chave dela. A chave é testada antes de ser salva, fica criptografada no servidor e nunca volta para o aparelho. Sem chave, o assistente funciona no modo simples.
+- **Assistente pelo WhatsApp**: mande "gastei 45 no lanche" para o número do Saldo no WhatsApp e o lançamento entra na hora, com resposta, aviso de meta e "apaga o último". Usa a Cloud API oficial da Meta, o mesmo assistente do app (IA do usuário ou modo simples) e as últimas mensagens como contexto para correções. O número é ligado à conta por um código de 6 dígitos gerado em Ajustes.
 - **Conector do Claude**: em Ajustes → Usar no Claude, a pessoa cria uma chave e adiciona o Saldo como conector personalizado no Claude (site, computador ou celular). Daí em diante, "gastei 45 no mercado" ou "quanto ainda posso gastar em lazer?" dito no próprio Claude lança e consulta no Saldo, usando a assinatura dela, sem custo de API. São as mesmas ferramentas do chat do app, servidas por MCP.
 - **Sincronização com o banco**: uma tarefa agendada no Claude lê a conta e o cartão pelo Open Finance todo dia às 22h e envia para o Saldo por uma chave que só pode enviar lançamentos. O servidor limpa as descrições do extrato ("Transferência enviada pelo Pix\|CEMIG" vira "Pix para Cemig"), escolhe a categoria pelo hábito do usuário e pela categoria do banco, e não duplica: reconhece o que já foi lançado à mão ou pelo chat, liga a compra pendente à confirmada e ignora o pagamento da fatura.
 - **APK para Android** gerado automaticamente pelo GitHub Actions a cada envio de código, além da versão web instalável (PWA). Modo escuro automático e layout pensado primeiro para o celular.
@@ -52,7 +53,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
 | Android | Capacitor 8, APK montado e publicado pelo GitHub Actions |
 | IA | Claude (Messages API), ChatGPT (Responses API) e Gemini (generateContent), com a chave de cada usuário, todos com chamada de ferramentas. Sem SDKs: um adaptador fino por provedor sobre `fetch` |
-| Qualidade | Vitest (174 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real e cobertura da documentação), Playwright de ponta a ponta num celular emulado (inclusive sem internet), GitHub Actions com PostgreSQL 16 real |
+| Qualidade | Vitest (184 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real, WhatsApp com Graph API simulada e cobertura da documentação), Playwright de ponta a ponta num celular emulado (inclusive sem internet), GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
@@ -68,6 +69,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Funciona sem chave.** Sem IA conectada, o assistente cai num modo simples por regras que entende valores por extenso ("cinquenta reais e noventa centavos", "mil e duzentos", "2k"), datas relativas ("sexta passada", "dia 10", "12/09"), parcelamentos, vários itens numa frase e "apaga o último", e também aprende com o histórico de categorias. O app nunca fica sem chat.
 - **Sincronização idempotente.** Cada id de transação do banco fica numa tabela de referências (`bank_refs`) que pode apontar vários ids para o mesmo lançamento, porque o banco troca o id quando a compra sai de pendente. Antes de criar, o servidor procura um lançamento do mesmo tipo e valor até 3 dias de distância feito à mão (conciliação). Apagar um lançamento importado deixa a referência sem alvo, então ele não volta na sincronização seguinte.
 - **MCP sem sessão, com as mesmas ferramentas.** O endpoint `/mcp` usa o transporte Streamable HTTP do SDK oficial em modo sem sessão: cada requisição autentica a chave, monta um servidor com as ferramentas do assistente e as instruções do usuário (categorias, hábitos e calendário) e responde em JSON. Nenhuma IA é chamada pelo servidor; quem conversa é o Claude da pessoa. A chave pode vir no cabeçalho `Authorization` ou no caminho (`/mcp/<chave>`), e nesse caso aparece mascarada no log.
+- **WhatsApp seguro e sem lançar duas vezes.** O webhook confere a assinatura `X-Hub-Signature-256` (HMAC do corpo bruto com o App Secret) antes de ler qualquer coisa, responde 200 na hora e processa em seguida. O id da mensagem da Meta é chave primária, então uma entrega repetida não lança de novo. Celular brasileiro chega às vezes sem o nono dígito: o vínculo reconhece os dois formatos e, se a Meta recusar o envio (erro 131030), a resposta sai no outro.
 - **Chave de menor privilégio.** As chaves (`saldo_…`) são guardadas só como hash SHA-256, aparecem uma única vez e têm um escopo: a da tarefa agendada só é aceita em `POST /api/sync/bank` e `GET /api/sync/status`, a do conector só em `/mcp` e a das notificações só em `GET /api/notifications`. Qualquer outra rota responde 403.
 - **Limite de uso.** Cada usuário tem um teto de mensagens por hora (`ASSISTANT_HOURLY_LIMIT`), que protege o servidor e a conta de IA dele contra laços.
 - **Aviso de meta que não se repete.** A faixa de cada meta (0, 80 ou 100%) é calculada na hora a partir dos lançamentos, e os avisos já dados ficam numa tabela (`budget_alerts`) por categoria, mês e faixa. Assim o aviso aparece uma única vez, não importa por onde o gasto entrou (inclusive pela sincronização com o banco, com o app fechado), e mudar a meta recomeça a contagem.
@@ -134,6 +136,18 @@ Para gerar no próprio PC (precisa do Android Studio): `npm run build -w web`, d
 
 Em cada aba de mês: *Arquivo, Fazer download, Valores separados por vírgula (.csv)*. No Saldo, vá em **Importar**, escolha o arquivo, confira a prévia e confirme. Valores como `1227.76`, `1.227,76` e `R$ 150,00` são entendidos; linhas de título e de total são ignoradas.
 
+## Assistente pelo WhatsApp
+
+Usa a [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api/get-started/) oficial. O número de teste da Meta manda mensagens de graça para até 5 números cadastrados, o que basta para uso pessoal.
+
+1. Em [developers.facebook.com](https://developers.facebook.com/apps), crie um app do tipo **Business** e adicione o produto **WhatsApp**. A Meta cria (ou pede) uma conta comercial e um **número de teste**.
+2. Em **WhatsApp → API Setup**, adicione o seu celular em **To** e confirme com o código que chega no WhatsApp. Anote o **Phone number ID** e o número de teste.
+3. Gere um token que não expira: em [business.facebook.com](https://business.facebook.com/settings/system-users) → **Usuários do sistema**, crie um usuário Admin, atribua o app a ele e gere um token com as permissões `whatsapp_business_messaging` e `whatsapp_business_management`.
+4. Em **App settings → Basic**, copie o **App Secret**.
+5. No Render, em **Environment** do `saldo-api`, preencha `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_NUMBER` (o número de teste, como aparece na Meta) e `WHATSAPP_VERIFY_TOKEN` (uma frase qualquer, que você repete no passo seguinte).
+6. Em **WhatsApp → Configuration**, coloque o webhook `https://<sua-api>/api/whatsapp/webhook` com o mesmo verify token, clique em **Verify and save** e assine o campo **messages**.
+7. No app, **Ajustes → WhatsApp → Conectar WhatsApp**, e mande o código para o número de teste.
+
 ## API
 
 Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorization: Bearer <token>`. A documentação navegável (OpenAPI 3.1) fica em [`/docs`](https://saldo-api-g1ae.onrender.com/docs), e um teste garante que toda rota está documentada.
@@ -160,6 +174,8 @@ Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorizatio
 | POST | `/api/sync/bank` | Recebe transações do banco (com a chave de sincronização) |
 | GET | `/api/sync/status` | Última sincronização |
 | GET | `/api/notifications` | Notificações do celular (metas e importações novas), com a chave de escopo `notify`; cada uma sai uma vez |
+| GET, POST, DELETE | `/api/whatsapp`, `/code`, `/link` | Estado do WhatsApp, código para ligar o número e desligar |
+| GET, POST | `/api/whatsapp/webhook` | Verificação e mensagens da Meta (assinadas) |
 | POST | `/mcp` | Conector do Claude (MCP, Streamable HTTP), com a chave de escopo `mcp` |
 | GET, PUT, DELETE | `/api/assistant/settings` | Conectar, trocar ou desconectar a IA do usuário (a chave nunca é devolvida) |
 

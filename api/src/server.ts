@@ -10,7 +10,9 @@ import { budgetRoutes } from './routes/budgets.js';
 import { transactionRoutes } from './routes/transactions.js';
 import { summaryRoutes } from './routes/summary.js';
 import { importExportRoutes } from './routes/import-export.js';
-import { assistantRoutes, type AssistantOptions } from './assistant/route.js';
+import { assistantRoutes, createAssistant, type AssistantOptions } from './assistant/route.js';
+import { whatsappRoutes } from './whatsapp/route.js';
+import { createWhatsAppSender, type WhatsAppSender } from './whatsapp/client.js';
 import { createProviderSession, verifyApiKey } from './assistant/providers.js';
 import { createSecretBox } from './lib/secret.js';
 import { syncRoutes, tokenRoutes, hashToken, SCOPE_ROUTES } from './routes/sync.js';
@@ -43,6 +45,17 @@ export interface AppOptions {
   /** Segredo para criptografar as chaves de IA dos usuários. Sem ele, usa um derivado do JWT_SECRET. */
   aiKeySecret?: string;
   assistant?: Partial<AssistantOptions>;
+  /** Assistente pelo WhatsApp (Cloud API). Sem token, número, verify token e app secret, fica desligado. */
+  whatsapp?: {
+    token?: string;
+    phoneNumberId?: string;
+    verifyToken?: string;
+    appSecret?: string;
+    displayNumber?: string;
+    apiVersion?: string;
+    /** Substitui o envio real (testes). */
+    sender?: WhatsAppSender;
+  };
 }
 
 export class HttpError extends Error {
@@ -129,8 +142,7 @@ export async function buildApp(opts: AppOptions) {
   await app.register(tokenRoutes, { prefix: '/api/tokens' });
   await app.register(syncRoutes, { prefix: '/api/sync' });
   await app.register(notificationRoutes, { prefix: '/api/notifications' });
-  await app.register(assistantRoutes, {
-    prefix: '/api/assistant',
+  const assistantOptions: AssistantOptions = {
     secretBox: createSecretBox(opts.aiKeySecret ?? opts.jwtSecret),
     providerFactory: createProviderSession,
     verifyKey: (provider, key) => verifyApiKey(provider, key),
@@ -138,6 +150,29 @@ export async function buildApp(opts: AppOptions) {
     hourlyLimit: 60,
     rateLimit: opts.rateLimit ?? true,
     ...opts.assistant
+  };
+  // Um assistente só para o app e o WhatsApp: mesmo limite por hora, mesmas regras.
+  const assistant = createAssistant(opts.db, assistantOptions);
+  await app.register(assistantRoutes, { prefix: '/api/assistant', ...assistantOptions, assistant });
+
+  const inflight = new Set<Promise<unknown>>();
+  app.decorate('whatsappIdle', async () => {
+    while (inflight.size) await Promise.allSettled([...inflight]);
+  });
+  const wa = opts.whatsapp ?? {};
+  const waEnabled = Boolean((wa.sender || (wa.token && wa.phoneNumberId)) && wa.verifyToken && wa.appSecret);
+  await app.register(whatsappRoutes, {
+    prefix: '/api/whatsapp',
+    enabled: waEnabled,
+    verifyToken: wa.verifyToken,
+    appSecret: wa.appSecret,
+    displayNumber: wa.displayNumber,
+    sender: wa.sender ?? (wa.token && wa.phoneNumberId ? createWhatsAppSender({ token: wa.token, phoneNumberId: wa.phoneNumberId, apiVersion: wa.apiVersion }) : undefined),
+    assistant,
+    track: (work) => {
+      inflight.add(work);
+      void work.finally(() => inflight.delete(work));
+    }
   });
 
   await app.register(mcpRoutes, { prefix: '/mcp', timeZone: opts.assistant?.timeZone ?? 'America/Sao_Paulo' });

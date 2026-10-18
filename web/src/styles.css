@@ -1937,3 +1937,14 @@ td {
   color: var(--alerta);
   white-space: nowrap;
 }
+
+/* ---------- WhatsApp ---------- */
+.wa-code {
+  font-size: 1.6rem !important;
+  letter-spacing: 0.25em;
+  text-align: center;
+  font-weight: 600;
+}
+a.btn {
+  text-decoration: none;
+}
