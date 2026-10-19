@@ -39,7 +39,9 @@ const app = await buildApp({
   logger: true,
   assistant: {
     timeZone: process.env.APP_TIMEZONE ?? 'America/Sao_Paulo',
-    hourlyLimit: num(process.env.ASSISTANT_HOURLY_LIMIT, 60)
+    hourlyLimit: num(process.env.ASSISTANT_HOURLY_LIMIT, 60),
+    // Opcional: chave do Gemini do servidor para transcrever áudio de quem usa o modo simples ou o Claude.
+    ...(process.env.AUDIO_GEMINI_API_KEY ? { audioFallback: { provider: 'gemini' as const, apiKey: process.env.AUDIO_GEMINI_API_KEY } } : {})
   },
   whatsapp: {
     token: process.env.WHATSAPP_TOKEN,

@@ -2,6 +2,7 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
 import { HttpError } from '../server.js';
 import type { Assistant, ChatMessage, ChatResult } from '../assistant/route.js';
+import type { AudioClip } from '../assistant/providers.js';
 import { publishChange } from '../lib/events.js';
 
 /**
@@ -23,6 +24,8 @@ export interface IncomingChat {
   text: string | null;
   kind: string;
   name?: string;
+  /** Mensagem de voz ou arquivo de áudio: baixado só depois de saber que a conversa está ligada. */
+  audio?: { duration?: number; size?: number; load: () => Promise<AudioClip> };
 }
 
 export interface ChatBotOptions {
@@ -34,15 +37,20 @@ export interface ChatBotOptions {
   aliases?: (from: string) => string[];
   /** Como o canal se chama nas mensagens ("WhatsApp", "Telegram"). */
   label: string;
+  /** O canal entrega áudio para transcrever (IncomingChat.audio). */
+  hearsAudio?: boolean;
 }
 
 export const CODE_TTL_MIN = 15;
+/** Áudio de lançamento é curto; acima disso pede para mandar em partes (protege a cota de IA e a memória do servidor). */
+export const MAX_AUDIO_SECONDS = 120;
+export const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
 const HISTORY_WINDOW_H = 3;
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const reais = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-export const HELP = [
-  'Oi! Eu lanço no seu Saldo. Mande do seu jeito:',
+const helpText = (hearsAudio: boolean) => [
+  `Oi! Eu lanço no seu Saldo. ${hearsAudio ? 'Escreva ou mande áudio' : 'Mande'} do seu jeito:`,
   '• gastei 45 no lanche',
   '• recebi 200 de pix do João',
   '• paguei 150 de luz ontem',
@@ -94,6 +102,7 @@ export async function unlink(db: Db, userId: number, channel: Channel) {
 export function createChatBot(opts: ChatBotOptions) {
   const { db, channel } = opts;
   const ids = (from: string) => [from, ...(opts.aliases?.(from) ?? [])];
+  const HELP = helpText(Boolean(opts.hearsAudio));
 
   async function userFor(from: string): Promise<{ userId: number; name: string } | null> {
     const { rows } = await db.query<{ user_id: number; name: string }>(
@@ -135,7 +144,7 @@ export function createChatBot(opts: ChatBotOptions) {
 
   /** Trata uma mensagem recebida. Mensagem já vista é ignorada. */
   async function handle(msg: IncomingChat) {
-    const text = (msg.text ?? '').trim().slice(0, 2000);
+    let text = (msg.text ?? '').trim().slice(0, 2000);
     const firstTime = (
       await db.query(
         `insert into chat_messages (id, channel, external_id, role, content) values ($1, $2, $3, 'user', $4)
@@ -145,7 +154,8 @@ export function createChatBot(opts: ChatBotOptions) {
     ).rows.length;
     if (!firstTime) return;
 
-    const flat = text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const flatten = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    let flat = flatten(text);
     const codeMatch = flat.match(/^(?:\/start\s+|vincular\s+|conectar\s+|codigo\s+)?(\d{6})$/);
     if (codeMatch) return link(msg.from, codeMatch[1], msg.name);
 
@@ -159,9 +169,35 @@ export function createChatBot(opts: ChatBotOptions) {
     }
     await db.query('update chat_messages set user_id = $2 where id = $1', [`${channel}:${msg.id}`, user.userId]);
 
-    if (!text) return say(msg.from, user.userId, 'Por enquanto eu entendo só mensagens de texto. Escreva, por exemplo: gastei 45 no lanche.');
+    let heard: string | null = null;
+    if (!text && msg.audio) {
+      if ((msg.audio.duration ?? 0) > MAX_AUDIO_SECONDS || (msg.audio.size ?? 0) > MAX_AUDIO_BYTES) {
+        return say(msg.from, user.userId, 'Esse áudio é longo demais para mim (até 2 minutos). Mande um mais curto ou por escrito.');
+      }
+      try {
+        heard = (await opts.assistant.transcribe(user.userId, msg.audio.load)).replace(/\s+/g, ' ').trim().slice(0, 2000);
+      } catch (err) {
+        return say(msg.from, user.userId, err instanceof HttpError ? err.message : 'Não consegui ouvir esse áudio. Tente de novo ou mande por escrito.');
+      }
+      if (!heard) return say(msg.from, user.userId, 'Não ouvi nenhuma fala nesse áudio. Tente de novo, mais perto do microfone, ou mande por escrito.');
+      text = heard;
+      flat = flatten(text).replace(/[.!?]+$/, '');
+      // O contexto das próximas mensagens passa a ter o que foi dito, não "[voice]".
+      await db.query('update chat_messages set content = $2 where id = $1', [`${channel}:${msg.id}`, text]);
+    }
+    const prefix = heard ? `🎙️ Ouvi: "${heard}"\n\n` : '';
+
+    if (!text) {
+      return say(
+        msg.from,
+        user.userId,
+        opts.hearsAudio
+          ? 'Eu entendo mensagens de texto e áudio. Escreva ou fale, por exemplo: gastei 45 no lanche.'
+          : 'Por enquanto eu entendo só mensagens de texto. Escreva, por exemplo: gastei 45 no lanche.'
+      );
+    }
     if (/^\/?(ajuda|menu|help|start)$/.test(flat) || /^(oi|ola|bom dia|boa tarde|boa noite)[!.]?$/.test(flat)) {
-      return say(msg.from, user.userId, `${HELP}\n\nTudo aparece na hora no app.`);
+      return say(msg.from, user.userId, `${prefix}${HELP}\n\nTudo aparece na hora no app.`);
     }
     if (/^\/?(desvincular|desconectar|sair|stop)$/.test(flat)) {
       await unlink(db, user.userId, channel);
@@ -181,10 +217,10 @@ export function createChatBot(opts: ChatBotOptions) {
     try {
       const result = await opts.assistant.converse(user.userId, [...recent, { role: 'user', content: text }]);
       if (result.transactions.length || result.updated?.length || result.deleted?.length) publishChange(user.userId, channel);
-      await say(msg.from, user.userId, formatReply(result));
+      await say(msg.from, user.userId, prefix + formatReply(result));
     } catch (err) {
       const message = err instanceof HttpError ? err.message : 'Não consegui lançar agora. Tente de novo em instantes ou use o app.';
-      await say(msg.from, user.userId, message);
+      await say(msg.from, user.userId, prefix + message);
     }
   }
 

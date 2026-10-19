@@ -27,10 +27,17 @@ interface Update {
     chat: { id: number; type: string };
     from?: { first_name?: string };
     text?: string;
-    voice?: object;
-    audio?: object;
+    voice?: TgAudio;
+    audio?: TgAudio;
     photo?: object;
   };
+}
+
+interface TgAudio {
+  file_id: string;
+  duration?: number;
+  mime_type?: string;
+  file_size?: number;
 }
 
 const safeEqual = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -43,6 +50,7 @@ export const telegramRoutes: FastifyPluginAsync<TelegramOptions> = async (app, o
         channel: 'telegram',
         label: 'Telegram',
         assistant: opts.assistant,
+        hearsAudio: true,
         send: (to, text) => opts.client!.sendMessage(to, text)
       })
     : null;
@@ -58,7 +66,8 @@ export const telegramRoutes: FastifyPluginAsync<TelegramOptions> = async (app, o
       enabled,
       bot: enabled && opts.username() ? `@${opts.username()}` : null,
       chatLink: enabled ? botLink() : null,
-      linked: link ? { linkedAt: link.linked_at } : null
+      linked: link ? { linkedAt: link.linked_at } : null,
+      audio: enabled ? await opts.assistant.canTranscribe(req.user.sub) : false
     };
   });
 
@@ -83,8 +92,17 @@ export const telegramRoutes: FastifyPluginAsync<TelegramOptions> = async (app, o
     // Só conversas privadas com o bot: em grupo, qualquer pessoa poderia lançar na conta ligada.
     if (m && m.chat?.type === 'private') {
       const kind = m.text !== undefined ? 'text' : m.voice ? 'voice' : m.audio ? 'audio' : m.photo ? 'photo' : 'other';
+      const clip = m.voice ?? m.audio;
+      const audio = clip?.file_id
+        ? {
+            duration: clip.duration,
+            size: clip.file_size,
+            // Mensagem de voz do Telegram é OGG/Opus.
+            load: async () => ({ data: await opts.client!.downloadFile(clip.file_id), mimeType: clip.mime_type || 'audio/ogg' })
+          }
+        : undefined;
       const work = bot
-        .handle({ id: String(u.update_id), from: String(m.chat.id), text: m.text ?? null, kind, name: m.from?.first_name })
+        .handle({ id: String(u.update_id), from: String(m.chat.id), text: m.text ?? null, kind, name: m.from?.first_name, audio })
         .catch((err) => req.log.error({ err }, 'falha ao processar mensagem do Telegram'));
       opts.track(work);
     }

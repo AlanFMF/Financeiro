@@ -7,6 +7,18 @@ interface Status {
   bot: string | null;
   chatLink: string | null;
   linked: { linkedAt: string } | null;
+  /** O bot entende áudio para esta conta (Gemini/ChatGPT conectado, ou chave do servidor). */
+  audio?: boolean;
+}
+
+function AudioNote({ audio }: { audio?: boolean }) {
+  return audio ? (
+    <p className="muted">Também entende áudio: segure o microfone e fale "gastei 45 no lanche".</p>
+  ) : (
+    <p className="muted">
+      Para mandar áudio, conecte o Gemini (tem uso gratuito) ou o ChatGPT em <a href="#ia">Assistente de IA</a>. O Claude ainda não recebe áudio.
+    </p>
+  );
 }
 
 /** Ajustes → Telegram: um toque abre o bot já com o código, e a conversa fica ligada à conta. */
@@ -47,6 +59,7 @@ export function TelegramSettings() {
           <p className="muted">
             Sua conversa com <strong>{s.bot}</strong> está ligada. Mande "gastei 45 no lanche" e o lançamento aparece aqui na hora.
           </p>
+          <AudioNote audio={s.audio} />
           <div className="actions">
             {s.chatLink && (
               <a className="btn primary" href={s.chatLink} target="_blank" rel="noreferrer">
@@ -88,6 +101,7 @@ export function TelegramSettings() {
             Lance mandando mensagem para o bot do Saldo no Telegram: "gastei 45 no lanche", "recebi 200 de pix", "quanto ainda posso gastar no
             mercado?". Usa a mesma IA (ou o modo simples) do assistente do app.
           </p>
+          <AudioNote audio={s.audio} />
           <button className="btn primary" onClick={() => createCode.mutate()} disabled={createCode.isPending}>
             {createCode.isPending ? 'Gerando…' : 'Conectar Telegram'}
           </button>

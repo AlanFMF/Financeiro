@@ -488,14 +488,15 @@ export const openapi = {
     '/api/telegram': {
       get: {
         tags: ['Telegram'],
-        summary: 'Se o bot está ligado no servidor, qual é o @ dele e se a conta já está ligada',
+        summary: 'Se o bot está ligado no servidor, qual é o @ dele, se a conta já está ligada e se o bot entende áudio dela',
         responses: {
           200: json(
             obj({
               enabled: bool,
               bot: { type: ['string', 'null'] },
               chatLink: { type: ['string', 'null'] },
-              linked: { oneOf: [obj({ linkedAt: { type: 'string', format: 'date-time' } }), { type: 'null' }] }
+              linked: { oneOf: [obj({ linkedAt: { type: 'string', format: 'date-time' } }), { type: 'null' }] },
+              audio: { ...bool, description: 'true se a IA conectada é Gemini ou ChatGPT, ou se o servidor tem chave própria para áudio' }
             })
           )
         }
@@ -515,7 +516,8 @@ export const openapi = {
       post: {
         tags: ['Telegram'],
         summary: 'Atualizações do Telegram (cabeçalho X-Telegram-Bot-Api-Secret-Token obrigatório)',
-        description: 'Só conversas privadas com o bot são atendidas. O webhook é registrado pelo servidor ao iniciar.',
+        description:
+          'Só conversas privadas com o bot são atendidas. O webhook é registrado pelo servidor ao iniciar. Mensagens de voz e arquivos de áudio (até 2 minutos) são baixados pela Bot API, transcritos pelo Gemini ou ChatGPT do usuário e tratados como texto.',
         security: [],
         requestBody: body({ type: 'object', description: 'Update da Bot API' }),
         responses: { 200: { description: 'Recebido (processado em seguida)' }, 401: json(ref('Error'), 'Segredo não confere') }

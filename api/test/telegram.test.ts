@@ -25,7 +25,8 @@ beforeEach(async () => {
       client: {
         sendMessage: async (to, text) => void sent.push({ to, text }),
         getMe: async () => ({ username: 'saldo_teste_bot' }),
-        setWebhook: async (url, secret) => void (webhook = { url, secret })
+        setWebhook: async (url, secret) => void (webhook = { url, secret }),
+        downloadFile: async () => Buffer.from('ogg')
       }
     }
   });
@@ -65,7 +66,7 @@ describe('Telegram', () => {
   it('ao iniciar, descobre o bot e registra o webhook com o segredo', async () => {
     expect(webhook).toEqual({ url: 'https://saldo.example.com/api/telegram/webhook', secret: 'segredo-de-teste' });
     const status = (await app.inject({ method: 'GET', url: '/api/telegram', headers })).json();
-    expect(status).toEqual({ enabled: true, bot: '@saldo_teste_bot', chatLink: 'https://t.me/saldo_teste_bot', linked: null });
+    expect(status).toEqual({ enabled: true, bot: '@saldo_teste_bot', chatLink: 'https://t.me/saldo_teste_bot', linked: null, audio: false });
   });
 
   it('o link do código liga a conversa e os lançamentos entram', async () => {
@@ -96,11 +97,12 @@ describe('Telegram', () => {
     expect(await transactions()).toHaveLength(1);
   });
 
-  it('áudio pede texto; /stop desliga', async () => {
+  it('áudio sem IA que ouve explica como ligar; /stop desliga', async () => {
     const { code } = (await app.inject({ method: 'POST', url: '/api/telegram/code', headers })).json();
     await send(`/start ${code}`);
+    expect(lastReply()).toContain('Escreva ou mande áudio');
     await send(null);
-    expect(lastReply()).toContain('só mensagens de texto');
+    expect(lastReply()).toContain('conecte o Gemini');
     await send('/start');
     expect(lastReply()).toContain('gastei 45 no lanche');
     await send('/stop');

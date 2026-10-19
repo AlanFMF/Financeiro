@@ -5,6 +5,8 @@ export interface TelegramClient {
   sendMessage(chatId: string, text: string): Promise<void>;
   getMe(): Promise<{ username: string }>;
   setWebhook(url: string, secretToken: string): Promise<void>;
+  /** Baixa um arquivo recebido (mensagem de voz, áudio) pelo file_id. */
+  downloadFile(fileId: string): Promise<Buffer>;
 }
 
 export class TelegramError extends Error {}
@@ -27,6 +29,13 @@ export function createTelegramClient(token: string, fetchImpl: typeof fetch = fe
     getMe: () => call<{ username: string }>('getMe'),
     async setWebhook(url, secretToken) {
       await call('setWebhook', { url, secret_token: secretToken, allowed_updates: ['message'], drop_pending_updates: false });
+    },
+    async downloadFile(fileId) {
+      const { file_path } = await call<{ file_path?: string }>('getFile', { file_id: fileId });
+      if (!file_path) throw new TelegramError('arquivo indisponível');
+      const res = await fetchImpl(`https://api.telegram.org/file/bot${token}/${file_path}`, { signal: AbortSignal.timeout(20_000) });
+      if (!res.ok) throw new TelegramError(`download falhou: HTTP ${res.status}`);
+      return Buffer.from(await res.arrayBuffer());
     }
   };
 }

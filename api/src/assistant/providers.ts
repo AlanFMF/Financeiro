@@ -269,6 +269,69 @@ export const createProviderSession: ProviderFactory = (config) => {
   return geminiSession(config);
 };
 
+// ------------------------------------------------------------------ áudio
+
+export interface AudioClip {
+  data: Buffer;
+  /** Ex.: audio/ogg (mensagem de voz do Telegram e do WhatsApp). */
+  mimeType: string;
+}
+
+/** Transcreve um áudio. Devolve o texto falado ('' se não houver fala). */
+export type Transcriber = (config: ProviderConfig, audio: AudioClip) => Promise<string>;
+
+/** A API do Claude ainda não recebe áudio; Gemini e ChatGPT recebem. */
+export const AUDIO_PROVIDERS: ProviderId[] = ['gemini', 'openai'];
+
+const TRANSCRIBE_PROMPT =
+  'Transcreva este áudio em português do Brasil exatamente como foi falado, com os números em algarismos (ex.: "45 reais", "12,50"). ' +
+  'Responda só com a transcrição, sem aspas nem comentários. Se não houver fala, responda com nada.';
+
+export const transcribeAudio: Transcriber = async ({ provider, apiKey, model, fetch: f = fetch }, audio) => {
+  if (provider === 'gemini') {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    const body = await call(f, 'Gemini', url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: TRANSCRIBE_PROMPT }, { inlineData: { mimeType: audio.mimeType, data: audio.data.toString('base64') } }] }]
+      })
+    });
+    const parts = ((body.candidates ?? []) as { content?: { parts?: { text?: string; thought?: boolean }[] } }[])[0]?.content?.parts ?? [];
+    return parts
+      .filter((p) => typeof p.text === 'string' && !p.thought)
+      .map((p) => p.text)
+      .join(' ')
+      .trim();
+  }
+  if (provider === 'openai') {
+    // Modelo de transcrição próprio da OpenAI (o modelo de chat escolhido não entra aqui).
+    const ext = audio.mimeType.includes('ogg') ? 'ogg' : audio.mimeType.includes('mpeg') ? 'mp3' : audio.mimeType.split('/')[1] || 'ogg';
+    const request = (transcribeModel: string) => {
+      const form = new FormData();
+      form.append('file', new Blob([new Uint8Array(audio.data)], { type: audio.mimeType }), `audio.${ext}`);
+      form.append('model', transcribeModel);
+      form.append('language', 'pt');
+      form.append('prompt', 'Lançamentos financeiros: gastei 45 no lanche, recebi 200 de pix, paguei 150 de luz.');
+      return call(f, 'ChatGPT', 'https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${apiKey}` },
+        body: form
+      });
+    };
+    let body: Record<string, unknown>;
+    try {
+      body = await request('gpt-4o-mini-transcribe');
+    } catch (err) {
+      // Se a OpenAI aposentar o modelo novo, o whisper-1 continua servindo.
+      if (!(err instanceof ProviderError && err.kind === 'model')) throw err;
+      body = await request('whisper-1');
+    }
+    return String(body.text ?? '').trim();
+  }
+  throw new ProviderError('other', 'O Claude ainda não ouve áudio.');
+};
+
 /** Confere a chave listando os modelos: não gasta tokens. */
 export async function verifyApiKey(provider: ProviderId, apiKey: string, fetchFn: typeof fetch = fetch) {
   const label = PROVIDERS[provider].label;

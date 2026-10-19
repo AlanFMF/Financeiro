@@ -39,7 +39,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Importação da planilha**: CSV com Data, Categoria, Descrição, Entrada e Saída (ou extrato com coluna Valor). Mostra uma prévia, aponta linhas com erro, cria categorias novas e não duplica o que já foi importado.
 - **Exportação** no mesmo formato da planilha.
 - **Cada um usa a própria IA**: em Ajustes, a pessoa escolhe Claude, ChatGPT ou Gemini e cola a chave dela. A chave é testada antes de ser salva, fica criptografada no servidor e nunca volta para o aparelho. Sem chave, o assistente funciona no modo simples.
-- **Assistente pelo Telegram**: mande "gastei 45 no lanche" para o bot do Saldo e o lançamento entra na hora, com resposta, aviso de meta, "apaga o último" e correções. Em Ajustes, "Conectar Telegram" abre o bot já com um código que liga a conversa à conta. O servidor registra o webhook sozinho ao iniciar e confere o segredo em cada chamada; só conversas privadas são atendidas.
+- **Assistente pelo Telegram**: mande "gastei 45 no lanche" para o bot do Saldo, escrito ou em áudio, e o lançamento entra na hora, com resposta, aviso de meta, "apaga o último" e correções. O áudio é transcrito pelo Gemini ou ChatGPT do usuário e o bot responde com o que ouviu. Em Ajustes, "Conectar Telegram" abre o bot já com um código que liga a conversa à conta. O servidor registra o webhook sozinho ao iniciar e confere o segredo em cada chamada; só conversas privadas são atendidas.
 - **Assistente pelo WhatsApp**: mande "gastei 45 no lanche" para o número do Saldo no WhatsApp e o lançamento entra na hora, com resposta, aviso de meta e "apaga o último". Usa a Cloud API oficial da Meta, o mesmo assistente do app (IA do usuário ou modo simples) e as últimas mensagens como contexto para correções. O número é ligado à conta por um código de 6 dígitos gerado em Ajustes.
 - **Conector do Claude**: em Ajustes → Usar no Claude, a pessoa cria uma chave e adiciona o Saldo como conector personalizado no Claude (site, computador ou celular). Daí em diante, "gastei 45 no mercado" ou "quanto ainda posso gastar em lazer?" dito no próprio Claude lança e consulta no Saldo, usando a assinatura dela, sem custo de API. São as mesmas ferramentas do chat do app, servidas por MCP.
 - **Sincronização com o banco**: uma tarefa agendada no Claude lê a conta e o cartão pelo Open Finance todo dia às 22h e envia para o Saldo por uma chave que só pode enviar lançamentos. O servidor limpa as descrições do extrato ("Transferência enviada pelo Pix\|CEMIG" vira "Pix para Cemig"), escolhe a categoria pelo hábito do usuário e pela categoria do banco, e não duplica: reconhece o que já foi lançado à mão ou pelo chat, liga a compra pendente à confirmada e ignora o pagamento da fatura.
@@ -55,7 +55,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
 | Android | Capacitor 8, APK montado e publicado pelo GitHub Actions |
 | IA | Claude (Messages API), ChatGPT (Responses API) e Gemini (generateContent), com a chave de cada usuário, todos com chamada de ferramentas. Sem SDKs: um adaptador fino por provedor sobre `fetch` |
-| Qualidade | Vitest (193 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real, WhatsApp e Telegram com as APIs simuladas e cobertura da documentação), Playwright de ponta a ponta num celular emulado (inclusive sem internet), GitHub Actions com PostgreSQL 16 real |
+| Qualidade | Vitest (205 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real, WhatsApp e Telegram (texto e áudio) com as APIs simuladas e cobertura da documentação), Playwright de ponta a ponta num celular emulado (inclusive sem internet), GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
@@ -146,6 +146,8 @@ Em cada aba de mês: *Arquivo, Fazer download, Valores separados por vírgula (.
 3. No app, **Ajustes → Telegram → Conectar Telegram**, e toque em **Começar** na conversa que abrir.
 
 O WhatsApp e o Telegram usam o mesmo núcleo (`api/src/messaging/core.ts`): vínculo por código, contexto da conversa, trava contra mensagem repetida e o mesmo assistente do app.
+
+**Áudio.** Mensagens de voz e arquivos de áudio de até 2 minutos são baixados pela Bot API (`getFile`) e transcritos antes de ir para o assistente; a resposta começa com "🎙️ Ouvi: …", para conferir. A transcrição usa a IA que o usuário conectou: o Gemini recebe o OGG direto no `generateContent`, e o ChatGPT vai pelo endpoint de transcrição (`gpt-4o-mini-transcribe`, com `whisper-1` de reserva). A API do Claude ainda não recebe áudio. Para quem usa o modo simples ou o Claude, o servidor pode ter uma chave própria do Gemini em `AUDIO_GEMINI_API_KEY` (opcional; o Google AI Studio tem uso gratuito); sem ela, o bot explica como ligar. O áudio não é guardado: só a transcrição fica no histórico da conversa.
 
 ## Assistente pelo WhatsApp
 

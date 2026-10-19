@@ -37,3 +37,6 @@ services:
       # Assistente pelo Telegram: token do @BotFather. O webhook é registrado sozinho ao iniciar.
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      # Opcional: chave do Gemini (Google AI Studio) para o bot entender áudio de quem usa o modo simples ou o Claude.
+      - key: AUDIO_GEMINI_API_KEY
+        sync: false

@@ -5,7 +5,19 @@ import type { Db } from '../db.js';
 import type { SecretBox } from '../lib/secret.js';
 import { TX_SELECT } from '../routes/transactions.js';
 import { buildSystemPrompt } from './prompt.js';
-import { PROVIDERS, ProviderError, type ProviderFactory, type ProviderId, type ToolResult, type Turn } from './providers.js';
+import {
+  AUDIO_PROVIDERS,
+  PROVIDERS,
+  ProviderError,
+  transcribeAudio,
+  type AudioClip,
+  type ProviderConfig,
+  type ProviderFactory,
+  type ProviderId,
+  type ToolResult,
+  type Transcriber,
+  type Turn
+} from './providers.js';
 import { isDeleteLastCommand, isForecastQuestion, parseBudgetQuestion, parseByRules, type HistoryHint } from './rules.js';
 import { alertMessage, budgetStatus, remainingMessage, takeAlerts } from '../lib/budgets.js';
 import { forecastMessage, monthForecast } from '../lib/forecast.js';
@@ -22,6 +34,13 @@ export interface AssistantOptions {
   rateLimit?: boolean;
   /** Relógio (os testes fixam a data). */
   now?: () => Date;
+  /** Transcrição de áudio (os testes trocam por uma falsa). */
+  transcriber?: Transcriber;
+  /**
+   * Chave do servidor para transcrever áudio de quem não tem Gemini ou ChatGPT conectado (modo simples ou Claude).
+   * Opcional: sem ela, o áudio só funciona com a IA do próprio usuário.
+   */
+  audioFallback?: { provider: 'gemini' | 'openai'; apiKey: string; model?: string };
 }
 
 const chatBody = z.object({
@@ -149,7 +168,55 @@ export function createAssistant(db: Db, opts: AssistantOptions) {
     return respond(ctx, reply, 'ia');
   }
 
-  return { converse, loadSettings, checkLimit };
+  /** Transforma um áudio em texto com a IA do usuário (Gemini ou ChatGPT) ou, sem ela, com a chave do servidor. */
+  async function transcribe(userId: number, load: () => Promise<AudioClip>, log?: { warn: (o: object, m: string) => void }): Promise<string> {
+    const settings = await loadSettings(userId);
+    let config: ProviderConfig | null = null;
+    if (settings && AUDIO_PROVIDERS.includes(settings.provider)) {
+      let apiKey: string;
+      try {
+        apiKey = opts.secretBox.decrypt(settings.key_encrypted);
+      } catch {
+        throw new HttpError(400, 'Não consegui ler a chave salva. Conecte a IA de novo em Ajustes.');
+      }
+      config = { provider: settings.provider, apiKey, model: settings.model };
+    } else if (opts.audioFallback) {
+      const f = opts.audioFallback;
+      config = { provider: f.provider, apiKey: f.apiKey, model: f.model ?? PROVIDERS[f.provider].defaultModel };
+    }
+    if (!config) {
+      throw new HttpError(
+        400,
+        settings?.provider === 'claude'
+          ? 'Para eu entender áudio, a IA conectada precisa ser o Gemini ou o ChatGPT: a API do Claude ainda não recebe áudio. Troque em Ajustes → Assistente de IA, ou mande por escrito.'
+          : 'Para eu entender áudio, conecte o Gemini (tem uso gratuito) ou o ChatGPT em Ajustes → Assistente de IA. Por escrito eu já entendo: gastei 45 no lanche.'
+      );
+    }
+    checkLimit(userId);
+    // Só baixa o áudio depois de saber que dá para transcrever.
+    let audio: AudioClip;
+    try {
+      audio = await load();
+    } catch (err) {
+      log?.warn({ err }, 'falha ao baixar áudio');
+      throw new HttpError(502, 'Não consegui baixar esse áudio. Tente mandar de novo.');
+    }
+    try {
+      return await (opts.transcriber ?? transcribeAudio)(config, audio);
+    } catch (err) {
+      log?.warn({ err, provider: config.provider }, 'falha ao transcrever áudio');
+      throw toHttpError(err);
+    }
+  }
+
+  /** Se o áudio funciona para este usuário (IA dele que ouve, ou chave do servidor). */
+  async function canTranscribe(userId: number) {
+    if (opts.audioFallback) return true;
+    const settings = await loadSettings(userId);
+    return Boolean(settings && AUDIO_PROVIDERS.includes(settings.provider));
+  }
+
+  return { converse, loadSettings, checkLimit, transcribe, canTranscribe };
 }
 
 export type Assistant = ReturnType<typeof createAssistant>;

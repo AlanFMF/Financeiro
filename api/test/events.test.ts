@@ -16,7 +16,7 @@ beforeEach(async () => {
     rateLimit: false,
     assistant: { now: () => new Date('2026-10-19T15:00:00Z') },
     telegram: {
-      client: { sendMessage: async (_to, text) => void sent.push(text), getMe: async () => ({ username: 'saldo_bot' }), setWebhook: async () => {} }
+      client: { sendMessage: async (_to, text) => void sent.push(text), getMe: async () => ({ username: 'saldo_bot' }), setWebhook: async () => {}, downloadFile: async () => Buffer.alloc(0) }
     }
   });
   base = await app.listen({ port: 0, host: '127.0.0.1' });
