@@ -34,6 +34,11 @@ export const serverStore = {
 };
 
 const base = () => serverStore.get() + '/api';
+export const apiBase = base;
+
+/** Identifica este aparelho nas escritas, para o aviso em tempo real não fazer o próprio app recarregar à toa. */
+export const CLIENT_ID =
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 export const tokenStore = {
   get: () => {
@@ -70,7 +75,8 @@ async function request<T>(method: string, path: string, body?: unknown, raw = fa
       method,
       headers: {
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-        ...(token ? { authorization: `Bearer ${token}` } : {})
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        'x-client-id': CLIENT_ID
       },
       body: body !== undefined ? JSON.stringify(body) : undefined
     });

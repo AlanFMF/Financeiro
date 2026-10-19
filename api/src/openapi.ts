@@ -304,6 +304,15 @@ export const openapi = {
       }
     },
 
+    '/api/events': {
+      get: {
+        tags: ['Resumo'],
+        summary: 'Avisos em tempo real (Server-Sent Events) quando os dados do usuário mudam',
+        description:
+          'Fica aberto. Envia `event: changed` com `{ source, at }` a cada mudança, venha do app (source = cabeçalho X-Client-Id de quem mudou), do Telegram, do WhatsApp, do Claude ou da sincronização com o banco.',
+        responses: { 200: { description: 'Fluxo de eventos', content: { 'text/event-stream': { schema: str } } }, 401: json(ref('Error')) }
+      }
+    },
     '/api/summary': {
       get: {
         tags: ['Resumo'],

@@ -153,3 +153,21 @@ test('abre sem conexão com o servidor: continua logado e mostra os últimos dad
   await expect(page.locator('.tx-desc', { hasText: 'Pão de queijo' })).toBeVisible();
   await expect(page.locator('.hero-value')).toContainText('12,00');
 });
+
+test('mudança feita fora do app (Telegram, outro aparelho) aparece sozinha na tela', async ({ page }) => {
+  await signUp(page);
+  await expect(page.locator('.hero-value')).toBeVisible();
+  const jwt = await page.evaluate(() => localStorage.getItem('saldo.token'));
+  const auth = { authorization: `Bearer ${jwt}` };
+  const cats = (await (await page.request.get('/api/categories', { headers: auth })).json()).categories as { id: number; name: string }[];
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  await page.waitForTimeout(1000); // conexão de avisos aberta
+
+  // Como se fosse outro aparelho (outro x-client-id) lançando.
+  await page.request.post('/api/transactions', {
+    headers: { ...auth, 'x-client-id': 'outro-aparelho' },
+    data: { categoryId: cats.find((c) => c.name === 'Lazer')!.id, date: today, description: 'Cinema pelo Telegram', amountCents: 3300 }
+  });
+  await expect(page.locator('.tx-desc', { hasText: 'Cinema pelo Telegram' })).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('.hero-value')).toContainText('33,00');
+});

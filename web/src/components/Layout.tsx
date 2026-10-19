@@ -7,6 +7,7 @@ import { TransactionSheet } from './TransactionSheet';
 import { AssistantChat } from './AssistantChat';
 import { BudgetAlerts } from './Budgets';
 import { OfflineBar } from './OfflineBar';
+import { useRealtime } from '../realtime';
 
 interface EditorState {
   open: (tx?: Transaction) => void;
@@ -28,6 +29,8 @@ export function Layout() {
   const [editing, setEditing] = useState<Transaction | null | undefined>(undefined);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  // Lançou pelo Telegram, pelo Claude ou o banco sincronizou: a tela atualiza sozinha.
+  useRealtime(Boolean(user));
 
   // Atalho do ícone instalado: "/?novo=1" já abre o formulário.
   useEffect(() => {

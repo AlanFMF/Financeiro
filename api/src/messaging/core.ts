@@ -2,6 +2,7 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import type { Db } from '../db.js';
 import { HttpError } from '../server.js';
 import type { Assistant, ChatMessage, ChatResult } from '../assistant/route.js';
+import { publishChange } from '../lib/events.js';
 
 /**
  * Núcleo do assistente por mensagem, igual para WhatsApp e Telegram:
@@ -179,6 +180,7 @@ export function createChatBot(opts: ChatBotOptions) {
     ).rows.reverse();
     try {
       const result = await opts.assistant.converse(user.userId, [...recent, { role: 'user', content: text }]);
+      if (result.transactions.length || result.updated?.length || result.deleted?.length) publishChange(user.userId, channel);
       await say(msg.from, user.userId, formatReply(result));
     } catch (err) {
       const message = err instanceof HttpError ? err.message : 'Não consegui lançar agora. Tente de novo em instantes ou use o app.';

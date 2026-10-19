@@ -19,6 +19,8 @@ import { createProviderSession, verifyApiKey } from './assistant/providers.js';
 import { createSecretBox } from './lib/secret.js';
 import { syncRoutes, tokenRoutes, hashToken, SCOPE_ROUTES } from './routes/sync.js';
 import { notificationRoutes } from './routes/notifications.js';
+import { eventRoutes } from './routes/events.js';
+import { publishChange } from './lib/events.js';
 import { mcpRoutes } from './mcp/route.js';
 import { docsHtml, openapi } from './openapi.js';
 
@@ -117,6 +119,14 @@ export async function buildApp(opts: AppOptions) {
     }
   });
 
+  // Toda escrita com login (app, sincronização do banco) avisa os aparelhos abertos daquele usuário.
+  app.addHook('onResponse', async (req, reply) => {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || reply.statusCode >= 300) return;
+    const userId = (req as { user?: { sub?: number } }).user?.sub;
+    if (!userId) return;
+    publishChange(userId, String(req.headers['x-client-id'] ?? 'api').slice(0, 64));
+  });
+
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof ZodError) {
       return reply.code(400).send({
@@ -152,6 +162,7 @@ export async function buildApp(opts: AppOptions) {
   await app.register(tokenRoutes, { prefix: '/api/tokens' });
   await app.register(syncRoutes, { prefix: '/api/sync' });
   await app.register(notificationRoutes, { prefix: '/api/notifications' });
+  await app.register(eventRoutes, { prefix: '/api/events' });
   const assistantOptions: AssistantOptions = {
     secretBox: createSecretBox(opts.aiKeySecret ?? opts.jwtSecret),
     providerFactory: createProviderSession,

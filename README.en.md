@@ -23,6 +23,7 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 - Spending by category, six-month history, search and filters.
 - Month-end forecast: today's balance plus fixed items from last month that haven't shown up yet (without double counting a bank import under another name) and the day-to-day spending pace.
 - Phone notifications (APK): a background runner polls a notify-only endpoint every ~30 minutes and shows budget warnings and new bank imports as Android notifications, without Firebase.
+- Live updates: a per-user Server-Sent Events stream refreshes the open app whenever data changes elsewhere (Telegram, WhatsApp, Claude, bank sync, another device), ignoring each device's own echo.
 - Works offline: create, edit and delete without a connection; changes show immediately, are marked as on-device, and sync in order when the network returns. Replays are idempotent thanks to a client-generated id with a per-user unique index. The app also opens offline with the last cached data.
 - Review queue for bank imports: changing a category confirms it, applies it to identical pending items and teaches the next import.
 - Category budgets: a monthly limit per expense category with a progress bar on the month screen. The app warns once at 80% and once when the limit is reached, whether the spending came from the form, the chat or the bank sync. In the chat you can ask how much is left in a category (with a per-day allowance until month end) or set a budget.
@@ -40,7 +41,7 @@ It grew out of a real Google Sheets budget I use at home. Saldo imports that spr
 - **Database:** PostgreSQL 16 with hand-written SQL and versioned migrations. Local development and tests run on PGlite (Postgres compiled to WASM), so nothing needs installing.
 - **Frontend:** React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa.
 - **AI:** bring-your-own-key for Claude (Messages API), ChatGPT (Responses API) and Gemini (generateContent), each behind a thin `fetch` adapter with a shared tool-calling interface; per-user hourly limits.
-- **Quality:** Vitest (190 tests, including the sentence parser, the three AI adapters against recorded request/response shapes, and the assistant against a scripted fake AI), Playwright end-to-end tests on an emulated phone, OpenAPI docs checked against the registered routes, GitHub Actions against a real PostgreSQL 16.
+- **Quality:** Vitest (193 tests, including the sentence parser, the three AI adapters against recorded request/response shapes, and the assistant against a scripted fake AI), Playwright end-to-end tests on an emulated phone, OpenAPI docs checked against the registered routes, GitHub Actions against a real PostgreSQL 16.
 - **Hosting:** Vercel (frontend), Render (API), Neon (database), all on free tiers.
 
 ## Design decisions

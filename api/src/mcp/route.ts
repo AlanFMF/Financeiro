@@ -8,6 +8,7 @@ import { TOOLS, runTool, type CategoryRow, type ToolContext } from '../assistant
 import { UNDERSTANDING, calendar, categoryLines, habitLines } from '../assistant/prompt.js';
 import { loadHabits } from '../lib/habits.js';
 import { alertMessage, takeAlerts } from '../lib/budgets.js';
+import { publishChange } from '../lib/events.js';
 
 /**
  * Conector do Claude (MCP remoto, transporte Streamable HTTP sem sessão).
@@ -124,6 +125,7 @@ export const mcpRoutes: FastifyPluginAsync<McpOptions> = async (app, opts) => {
       try {
         const result = await runTool(name, (request.params.arguments ?? {}) as Record<string, unknown>, ctx);
         let text = result.content;
+        if (!result.isError && !READ_ONLY.has(name)) publishChange(userId, 'claude');
         if (WRITES.has(name) && !result.isError) {
           const alerts = await takeAlerts(app.db, userId, today.slice(0, 7));
           if (alerts.length) text += `\n\nAVISO DE META: ${alerts.map(alertMessage).join(' ')}`;
