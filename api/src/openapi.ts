@@ -42,6 +42,7 @@ export const openapi = {
     { name: 'Resumo' },
     { name: 'Assistente' },
     { name: 'WhatsApp', description: 'Assistente pelo WhatsApp (Cloud API oficial da Meta)' },
+    { name: 'Telegram', description: 'Assistente pelo Telegram (Bot API oficial)' },
     { name: 'Banco e conector', description: 'Chaves de menor privilégio para a tarefa agendada e para o conector do Claude' }
   ],
   security: [{ jwt: [] }],
@@ -473,6 +474,42 @@ export const openapi = {
         security: [],
         requestBody: body({ type: 'object', description: 'Notificação da WhatsApp Cloud API' }),
         responses: { 200: { description: 'Recebido (processado em seguida)' }, 401: json(ref('Error'), 'Assinatura inválida') }
+      }
+    },
+    '/api/telegram': {
+      get: {
+        tags: ['Telegram'],
+        summary: 'Se o bot está ligado no servidor, qual é o @ dele e se a conta já está ligada',
+        responses: {
+          200: json(
+            obj({
+              enabled: bool,
+              bot: { type: ['string', 'null'] },
+              chatLink: { type: ['string', 'null'] },
+              linked: { oneOf: [obj({ linkedAt: { type: 'string', format: 'date-time' } }), { type: 'null' }] }
+            })
+          )
+        }
+      }
+    },
+    '/api/telegram/code': {
+      post: {
+        tags: ['Telegram'],
+        summary: 'Código de 6 dígitos e link t.me/<bot>?start=<código> que liga a conversa à conta',
+        responses: { 200: json(obj({ code: str, expiresAt: { type: 'string', format: 'date-time' }, link: { type: ['string', 'null'] } })), 503: json(ref('Error')) }
+      }
+    },
+    '/api/telegram/link': {
+      delete: { tags: ['Telegram'], summary: 'Desligar a conversa do Telegram da conta', responses: { 204: { description: 'Desligada' } } }
+    },
+    '/api/telegram/webhook': {
+      post: {
+        tags: ['Telegram'],
+        summary: 'Atualizações do Telegram (cabeçalho X-Telegram-Bot-Api-Secret-Token obrigatório)',
+        description: 'Só conversas privadas com o bot são atendidas. O webhook é registrado pelo servidor ao iniciar.',
+        security: [],
+        requestBody: body({ type: 'object', description: 'Update da Bot API' }),
+        responses: { 200: { description: 'Recebido (processado em seguida)' }, 401: json(ref('Error'), 'Segredo não confere') }
       }
     },
     '/mcp': {

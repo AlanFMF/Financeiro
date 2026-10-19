@@ -38,6 +38,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 - **Importação da planilha**: CSV com Data, Categoria, Descrição, Entrada e Saída (ou extrato com coluna Valor). Mostra uma prévia, aponta linhas com erro, cria categorias novas e não duplica o que já foi importado.
 - **Exportação** no mesmo formato da planilha.
 - **Cada um usa a própria IA**: em Ajustes, a pessoa escolhe Claude, ChatGPT ou Gemini e cola a chave dela. A chave é testada antes de ser salva, fica criptografada no servidor e nunca volta para o aparelho. Sem chave, o assistente funciona no modo simples.
+- **Assistente pelo Telegram**: mande "gastei 45 no lanche" para o bot do Saldo e o lançamento entra na hora, com resposta, aviso de meta, "apaga o último" e correções. Em Ajustes, "Conectar Telegram" abre o bot já com um código que liga a conversa à conta. O servidor registra o webhook sozinho ao iniciar e confere o segredo em cada chamada; só conversas privadas são atendidas.
 - **Assistente pelo WhatsApp**: mande "gastei 45 no lanche" para o número do Saldo no WhatsApp e o lançamento entra na hora, com resposta, aviso de meta e "apaga o último". Usa a Cloud API oficial da Meta, o mesmo assistente do app (IA do usuário ou modo simples) e as últimas mensagens como contexto para correções. O número é ligado à conta por um código de 6 dígitos gerado em Ajustes.
 - **Conector do Claude**: em Ajustes → Usar no Claude, a pessoa cria uma chave e adiciona o Saldo como conector personalizado no Claude (site, computador ou celular). Daí em diante, "gastei 45 no mercado" ou "quanto ainda posso gastar em lazer?" dito no próprio Claude lança e consulta no Saldo, usando a assinatura dela, sem custo de API. São as mesmas ferramentas do chat do app, servidas por MCP.
 - **Sincronização com o banco**: uma tarefa agendada no Claude lê a conta e o cartão pelo Open Finance todo dia às 22h e envia para o Saldo por uma chave que só pode enviar lançamentos. O servidor limpa as descrições do extrato ("Transferência enviada pelo Pix\|CEMIG" vira "Pix para Cemig"), escolhe a categoria pelo hábito do usuário e pela categoria do banco, e não duplica: reconhece o que já foi lançado à mão ou pelo chat, liga a compra pendente à confirmada e ignora o pagamento da fatura.
@@ -53,7 +54,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
 | Android | Capacitor 8, APK montado e publicado pelo GitHub Actions |
 | IA | Claude (Messages API), ChatGPT (Responses API) e Gemini (generateContent), com a chave de cada usuário, todos com chamada de ferramentas. Sem SDKs: um adaptador fino por provedor sobre `fetch` |
-| Qualidade | Vitest (184 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real, WhatsApp com Graph API simulada e cobertura da documentação), Playwright de ponta a ponta num celular emulado (inclusive sem internet), GitHub Actions com PostgreSQL 16 real |
+| Qualidade | Vitest (190 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real, WhatsApp e Telegram com as APIs simuladas e cobertura da documentação), Playwright de ponta a ponta num celular emulado (inclusive sem internet), GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
@@ -136,6 +137,14 @@ Para gerar no próprio PC (precisa do Android Studio): `npm run build -w web`, d
 
 Em cada aba de mês: *Arquivo, Fazer download, Valores separados por vírgula (.csv)*. No Saldo, vá em **Importar**, escolha o arquivo, confira a prévia e confirme. Valores como `1227.76`, `1.227,76` e `R$ 150,00` são entendidos; linhas de título e de total são ignoradas.
 
+## Assistente pelo Telegram
+
+1. No Telegram, abra o [@BotFather](https://t.me/BotFather), mande `/newbot`, dê um nome (Saldo) e um usuário terminado em `bot`. Ele responde com o **token** do bot.
+2. No Render, em **Environment** do `saldo-api`, crie `TELEGRAM_BOT_TOKEN` com esse token e salve. A API reinicia, descobre o @ do bot e aponta o webhook para `/api/telegram/webhook` (usa o `RENDER_EXTERNAL_URL` que o próprio Render define; fora do Render, defina `PUBLIC_URL`).
+3. No app, **Ajustes → Telegram → Conectar Telegram**, e toque em **Começar** na conversa que abrir.
+
+O WhatsApp e o Telegram usam o mesmo núcleo (`api/src/messaging/core.ts`): vínculo por código, contexto da conversa, trava contra mensagem repetida e o mesmo assistente do app.
+
 ## Assistente pelo WhatsApp
 
 Usa a [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api/get-started/) oficial. O número de teste da Meta manda mensagens de graça para até 5 números cadastrados, o que basta para uso pessoal.
@@ -174,6 +183,8 @@ Todas as rotas, exceto as de autenticação e `/api/health`, pedem `Authorizatio
 | POST | `/api/sync/bank` | Recebe transações do banco (com a chave de sincronização) |
 | GET | `/api/sync/status` | Última sincronização |
 | GET | `/api/notifications` | Notificações do celular (metas e importações novas), com a chave de escopo `notify`; cada uma sai uma vez |
+| GET, POST, DELETE | `/api/telegram`, `/code`, `/link` | Estado do bot, código e link t.me para ligar a conversa, desligar |
+| POST | `/api/telegram/webhook` | Atualizações do Telegram (com o segredo no cabeçalho) |
 | GET, POST, DELETE | `/api/whatsapp`, `/code`, `/link` | Estado do WhatsApp, código para ligar o número e desligar |
 | GET, POST | `/api/whatsapp/webhook` | Verificação e mensagens da Meta (assinadas) |
 | POST | `/mcp` | Conector do Claude (MCP, Streamable HTTP), com a chave de escopo `mcp` |

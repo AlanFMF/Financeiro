@@ -34,3 +34,6 @@ services:
         sync: false
       - key: WHATSAPP_NUMBER
         sync: false
+      # Assistente pelo Telegram: token do @BotFather. O webhook é registrado sozinho ao iniciar.
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false

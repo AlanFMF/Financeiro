@@ -65,7 +65,7 @@ function webhook(text: string, from = ALAN, opts: { id?: string; type?: string; 
 }
 async function send(text: string, from = ALAN, opts = {}) {
   const res = await webhook(text, from, opts);
-  await app.whatsappIdle();
+  await app.chatIdle();
   return res;
 }
 const lastReply = () => (sent.at(-1)?.body ?? '').replace(/\u00a0/g, ' ');
@@ -88,7 +88,7 @@ describe('WhatsApp', () => {
   it('recusa mensagem sem a assinatura da Meta', async () => {
     const res = await webhook('gastei 45 no lanche', ALAN, { secret: 'outro' });
     expect(res.statusCode).toBe(401);
-    await app.whatsappIdle();
+    await app.chatIdle();
     expect(sent).toEqual([]);
   });
 
@@ -101,7 +101,7 @@ describe('WhatsApp', () => {
     expect(r.code).toMatch(/^\d{6}$/);
     expect(r.link).toBe(`https://wa.me/15550109999?text=vincular%20${r.code}`);
     await send(`Vincular ${r.code}`);
-    expect(lastReply()).toMatch(/^Pronto, Alan! Este número está ligado ao seu Saldo/);
+    expect(lastReply()).toMatch(/^Pronto, Alan! Esta conversa está ligada ao seu Saldo/);
 
     const status = (await app.inject({ method: 'GET', url: '/api/whatsapp', headers })).json();
     expect(status).toMatchObject({ enabled: true, linked: { number: '+55 •••• 4579' } });
@@ -115,7 +115,7 @@ describe('WhatsApp', () => {
 
   it('o código vale uma vez e expira', async () => {
     const { code } = (await app.inject({ method: 'POST', url: '/api/whatsapp/code', headers })).json();
-    await db.query("update whatsapp_codes set expires_at = now() - interval '1 minute'");
+    await db.query("update chat_codes set expires_at = now() - interval '1 minute'");
     await send(code);
     expect(lastReply()).toContain('Esse código não vale');
   });
@@ -144,9 +144,9 @@ describe('WhatsApp', () => {
     await send('', ALAN, { type: 'audio' });
     expect(lastReply()).toContain('só mensagens de texto');
     await send('desvincular');
-    expect(lastReply()).toContain('desliguei este número');
+    expect(lastReply()).toContain('desliguei esta conversa');
     await send('gastei 10 de café');
-    expect(lastReply()).toContain('primeiro ligue este número');
+    expect(lastReply()).toContain('primeiro ligue esta conversa');
   });
 
   it('sem configuração, o webhook não existe e o app mostra que está desligado', async () => {

@@ -48,6 +48,11 @@ const app = await buildApp({
     appSecret: process.env.WHATSAPP_APP_SECRET,
     displayNumber: process.env.WHATSAPP_NUMBER,
     apiVersion: process.env.WHATSAPP_API_VERSION
+  },
+  telegram: {
+    token: process.env.TELEGRAM_BOT_TOKEN,
+    // O Render define RENDER_EXTERNAL_URL sozinho (https://saldo-api-….onrender.com).
+    publicUrl: process.env.PUBLIC_URL ?? process.env.RENDER_EXTERNAL_URL
   }
 });
 if (applied.length) app.log.info({ applied }, 'migrações aplicadas');

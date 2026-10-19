@@ -30,7 +30,8 @@ export function WhatsAppSettings() {
   });
 
   const s = status.data;
-  if (!s) return null;
+  // Sem WhatsApp configurado no servidor, a seção some (o Telegram faz o mesmo papel).
+  if (!s || !s.enabled) return null;
 
   return (
     <section className="panel" id="whatsapp">

@@ -10,6 +10,7 @@ import { BudgetSettings } from '../components/Budgets';
 import { ClaudeConnector } from '../components/ClaudeConnector';
 import { PhoneNotifications } from '../components/PhoneNotifications';
 import { WhatsAppSettings } from '../components/WhatsAppSettings';
+import { TelegramSettings } from '../components/TelegramSettings';
 import { outbox } from '../outbox';
 import { useLocation } from 'react-router-dom';
 
@@ -73,6 +74,7 @@ export function SettingsPage() {
 
       {!user?.isDemo && <PhoneNotifications />}
       <AiSettings />
+      {!user?.isDemo && <TelegramSettings />}
       {!user?.isDemo && <WhatsAppSettings />}
       {!user?.isDemo && <ClaudeConnector />}
       {!user?.isDemo && <SyncSettings />}

@@ -12,6 +12,8 @@ import { summaryRoutes } from './routes/summary.js';
 import { importExportRoutes } from './routes/import-export.js';
 import { assistantRoutes, createAssistant, type AssistantOptions } from './assistant/route.js';
 import { whatsappRoutes } from './whatsapp/route.js';
+import { telegramRoutes } from './telegram/route.js';
+import { createTelegramClient, webhookSecret, type TelegramClient } from './telegram/client.js';
 import { createWhatsAppSender, type WhatsAppSender } from './whatsapp/client.js';
 import { createProviderSession, verifyApiKey } from './assistant/providers.js';
 import { createSecretBox } from './lib/secret.js';
@@ -55,6 +57,14 @@ export interface AppOptions {
     apiVersion?: string;
     /** Substitui o envio real (testes). */
     sender?: WhatsAppSender;
+  };
+  /** Assistente pelo Telegram. Com o token do bot e o endereço público, o webhook é registrado ao iniciar. */
+  telegram?: {
+    token?: string;
+    /** Endereço público da API (no Render, RENDER_EXTERNAL_URL). */
+    publicUrl?: string;
+    /** Substitui a Bot API real (testes). */
+    client?: TelegramClient;
   };
 }
 
@@ -156,7 +166,7 @@ export async function buildApp(opts: AppOptions) {
   await app.register(assistantRoutes, { prefix: '/api/assistant', ...assistantOptions, assistant });
 
   const inflight = new Set<Promise<unknown>>();
-  app.decorate('whatsappIdle', async () => {
+  app.decorate('chatIdle', async () => {
     while (inflight.size) await Promise.allSettled([...inflight]);
   });
   const wa = opts.whatsapp ?? {};
@@ -174,6 +184,34 @@ export async function buildApp(opts: AppOptions) {
       void work.finally(() => inflight.delete(work));
     }
   });
+
+  const tg = opts.telegram ?? {};
+  const tgClient = tg.client ?? (tg.token ? createTelegramClient(tg.token) : undefined);
+  const tgSecret = tg.token ? webhookSecret(tg.token) : tg.client ? 'segredo-de-teste' : undefined;
+  let tgUsername: string | null = null;
+  await app.register(telegramRoutes, {
+    prefix: '/api/telegram',
+    client: tgClient,
+    secret: tgSecret,
+    username: () => tgUsername,
+    assistant,
+    track: (work) => {
+      inflight.add(work);
+      void work.finally(() => inflight.delete(work));
+    }
+  });
+  if (tgClient) {
+    // Descobre o @ do bot e aponta o webhook para cá. Falha aqui não derruba a API: só o Telegram fica fora.
+    app.addHook('onReady', async () => {
+      try {
+        tgUsername = (await tgClient.getMe()).username;
+        if (tg.publicUrl && tgSecret) await tgClient.setWebhook(`${tg.publicUrl.replace(/\/$/, '')}/api/telegram/webhook`, tgSecret);
+        app.log.info({ bot: tgUsername }, 'Telegram ligado');
+      } catch (err) {
+        app.log.error({ err }, 'não consegui ligar o Telegram');
+      }
+    });
+  }
 
   await app.register(mcpRoutes, { prefix: '/mcp', timeZone: opts.assistant?.timeZone ?? 'America/Sao_Paulo' });
 
