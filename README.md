@@ -55,7 +55,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
 | Android | Capacitor 8, APK montado e publicado pelo GitHub Actions |
 | IA | Claude (Messages API), ChatGPT (Responses API) e Gemini (generateContent), com a chave de cada usuário, todos com chamada de ferramentas. Sem SDKs: um adaptador fino por provedor sobre `fetch` |
-| Qualidade | Vitest (220 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real, WhatsApp e Telegram (texto e áudio) com as APIs simuladas e cobertura da documentação), Playwright de ponta a ponta num celular emulado (inclusive sem internet), GitHub Actions com PostgreSQL 16 real |
+| Qualidade | Vitest (218 testes: API, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real, WhatsApp e Telegram (texto e áudio) com as APIs simuladas e cobertura da documentação), Playwright de ponta a ponta num celular emulado (inclusive sem internet), GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
