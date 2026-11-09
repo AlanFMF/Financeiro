@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { sameName } from '../src/lib/fixed.js';
 import { nextInstallment, parseMoneyToCents, shiftMonth, daysInMonth } from '../src/lib/money.js';
 import { parseCsv, parseDate, parseTransactionsCsv } from '../src/lib/csv.js';
 
@@ -91,5 +92,20 @@ describe('parseTransactionsCsv', () => {
   it('aponta a linha com erro', () => {
     const { errors } = parseTransactionsCsv('Data,Categoria,Entrada,Saída\n32/13/2026,Lazer,,10');
     expect(errors[0]).toMatchObject({ line: 2 });
+  });
+});
+
+describe('nome de conta fixa', () => {
+  it.each([
+    ['Netflix', 'Netflix.Com', true],
+    ['YouTube Premium', 'Google Youtubepremium', true],
+    ['Meli+', 'Mp *Melimais', true],
+    ['Claude', 'Google Claude By Anth', true],
+    ['Internet Algar', 'Pix para Algar Telecom S/A', true],
+    ['Mercado', 'Supermercado Danyella', false],
+    ['Google One', 'Google Youtube', false],
+    ['Aluguel condomínio', 'Pagamento a Ivan Negocios Imobiliarios Ltd', false]
+  ])('%s × %s', (a, b, same) => {
+    expect(sameName(a, b)).toBe(same);
   });
 });

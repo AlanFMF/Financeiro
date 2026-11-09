@@ -259,8 +259,9 @@ export const openapi = {
       post: {
         tags: ['Lançamentos'],
         summary: 'Copiar os fixos de um mês para outro, avançando parcelas',
+        description: 'Se o banco já trouxe o pagamento de um fixo no mês de destino, o lançamento importado vira o fixo (conta em merged) em vez de duplicar.',
         requestBody: body(obj({ from: month, to: month })),
-        responses: { 200: json(obj({ created: int, skipped: int, finished: int })) }
+        responses: { 200: json(obj({ created: int, skipped: int, finished: int, merged: int })) }
       }
     },
     '/api/transactions/review': {
@@ -398,6 +399,8 @@ export const openapi = {
       post: {
         tags: ['Banco e conector'],
         summary: 'Receber transações do banco sem duplicar',
+        description:
+          'Cada item é pulado (id já visto), ligado a um lançamento existente (mesmo valor até 3 dias, ou pagamento de uma conta fixa do mesmo mês: mesmo valor, ou até 15% diferente com nome em comum ou na mesma categoria de conta), ignorado (fatura do cartão, antes de notBefore) ou criado.',
         security: [{ syncKey: [] }, { jwt: [] }],
         requestBody: body(obj({ source: str, notBefore: date, items: { type: 'array', maxItems: 500, items: ref('BankItem') } }, ['source', 'items'])),
         responses: {

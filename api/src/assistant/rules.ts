@@ -60,7 +60,7 @@ const INCOME_WORDS =
 const KEYWORDS: [RegExp, string][] = [
   [/salario|pro-?labore|holerite|13o|decimo terceiro/, 'Pró-labore/Salário'],
   [/freela|freelance|bico|extra|venda|vendi|comissao|bonus|cliente/, 'Extra'],
-  [/aluguel|condominio|\bluz\b|energia|\bagua\b|\bgas\b|iptu|cemig|reforma|\bmove(l|is)\b/, 'Moradia'],
+  [/aluguel|condominio|imobiliari|\bluz\b|energia|\bagua\b|\bgas\b|iptu|cemig|reforma|\bmove(l|is)\b/, 'Moradia'],
   [/internet|celular|telefone|plano de dados|recarga|\bvivo\b|\bclaro\b|\btim\b|\boi\b|algar/, 'Contas'],
   [
     /mercado|supermercado|padaria|feira|restaurante|lanche|ifood|\bifd\b|almoc|almoco|janta|\bcafes?\b|pizza|acougue|hortifruti|sorvete|hamburguer|marmita|delivery|drive|acai|refri|cerveja|\bpao\b/,

@@ -20,10 +20,13 @@ export function MonthPage() {
   const prev = shiftMonth(month, -1);
 
   const copyFixed = useMutation({
-    mutationFn: () => api.post<{ created: number; skipped: number; finished: number }>('/transactions/copy-fixed', { from: prev, to: month }),
+    mutationFn: () => api.post<{ created: number; skipped: number; finished: number; merged?: number }>('/transactions/copy-fixed', { from: prev, to: month }),
     onSuccess: async (r) => {
       await invalidate();
-      if (r.created) toast(`${r.created} fixo${r.created > 1 ? 's' : ''} copiado${r.created > 1 ? 's' : ''} de ${monthName(prev)}`);
+      const merged = r.merged ?? 0;
+      const paid = merged ? `${merged} já ${merged > 1 ? 'tinham vindo' : 'tinha vindo'} do banco` : '';
+      if (r.created) toast(`${r.created} fixo${r.created > 1 ? 's' : ''} copiado${r.created > 1 ? 's' : ''} de ${monthName(prev)}${paid ? `; ${paid}` : ''}`);
+      else if (merged) toast(`Fixos de ${monthName(prev)}: ${paid}`);
       else if (r.skipped) toast('Os fixos desse mês já estavam lançados');
       else toast(`Nenhum lançamento fixo em ${monthName(prev)}`);
     },

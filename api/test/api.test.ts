@@ -123,8 +123,8 @@ describe('lançamentos e resumo', () => {
     await add(cat('Transporte'), '2027-01-10', 'Seguro (12/12)');
 
     const copy = () => ctx.app.inject({ method: 'POST', url: '/api/transactions/copy-fixed', headers, payload: { from: '2027-01', to: '2027-02' } });
-    expect((await copy()).json()).toEqual({ created: 1, skipped: 0, finished: 1 });
-    expect((await copy()).json()).toEqual({ created: 0, skipped: 1, finished: 1 });
+    expect((await copy()).json()).toEqual({ created: 1, skipped: 0, finished: 1, merged: 0 });
+    expect((await copy()).json()).toEqual({ created: 0, skipped: 1, finished: 1, merged: 0 });
 
     const feb = (await ctx.app.inject({ method: 'GET', url: '/api/transactions?month=2027-02', headers })).json().transactions;
     expect(feb).toHaveLength(1);

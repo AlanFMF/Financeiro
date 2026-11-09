@@ -6,6 +6,7 @@ import { loadHabits } from '../lib/habits.js';
 import { categorizeBank, cleanBankDescription, isCardBillPayment } from '../lib/bank.js';
 import { EXTRA_COLORS } from '../lib/defaults.js';
 import { alertMessage, budgetStatus, type BudgetAlert } from '../lib/budgets.js';
+import { bestFixedMatch } from '../lib/fixed.js';
 
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -109,6 +110,8 @@ export const syncRoutes: FastifyPluginAsync = async (app) => {
    * - id já visto: pula (e atualiza o status de pendente para confirmado);
    * - mesmo valor e tipo, até 3 dias de diferença, de um lançamento feito à mão ou de uma compra pendente
    *   que agora veio confirmada com outro id: liga ao lançamento existente;
+   * - pagamento de uma conta fixa do mesmo mês (aluguel, internet, assinatura), em qualquer dia, ainda sem
+   *   referência do banco: liga ao fixo e acerta o valor e a data pelo que foi pago;
    * - pagamento de fatura do cartão e datas antes de `notBefore`: ignora;
    * - o resto vira lançamento novo, com descrição limpa e categoria pelo hábito do usuário e pelo banco.
    */
@@ -189,6 +192,37 @@ export const syncRoutes: FastifyPluginAsync = async (app) => {
 
         const description = cleanBankDescription(it.description, it.installment);
         const category = categorizeBank(description, it.kind, it.bankCategory, habits);
+
+        // Conta fixa do mês (lançada à mão ou copiada com "Copiar fixos") que o banco agora mostra paga.
+        const fixed = bestFixedMatch(
+          (
+            await tx.query<{ id: number; description: string; amountCents: number; category: string }>(
+              `select t.id, t.description, t.amount_cents as "amountCents", c.name as category
+               from transactions t join categories c on c.id = t.category_id
+               where t.user_id = $1 and c.kind = $2 and t.is_fixed
+                 and date_trunc('month', t.date) = date_trunc('month', $3::date)
+                 and not exists (select 1 from bank_refs r where r.transaction_id = t.id)
+               order by abs(t.date - $3::date), t.id`,
+              [userId, it.kind, it.date]
+            )
+          ).rows,
+          { description, amountCents: it.amountCents, category }
+        );
+        if (fixed) {
+          await tx.query('insert into bank_refs (user_id, external_id, transaction_id, status) values ($1, $2, $3, $4)', [
+            userId,
+            it.externalId,
+            fixed.id,
+            status
+          ]);
+          await tx.query(
+            'update transactions set amount_cents = $3, date = $4, source = coalesce(source, $5), updated_at = now() where id = $1 and user_id = $2',
+            [fixed.id, userId, it.amountCents, it.date, body.source]
+          );
+          results.push({ externalId: it.externalId, result: 'linked', reason: 'conta fixa', transactionId: fixed.id });
+          continue;
+        }
+
         const { rows } = await tx.query<{ id: number }>(
           `insert into transactions (user_id, category_id, date, description, amount_cents, source, needs_review)
            values ($1, $2, $3, $4, $5, $6, true) returning id`,

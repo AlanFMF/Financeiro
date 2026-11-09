@@ -92,6 +92,110 @@ describe('sincronização com o banco', () => {
     expect(txs[0]).toMatchObject({ id: manual.json().transaction.id, description: 'Mercado', source: 'Nubank cartão' });
   });
 
+  describe('contas fixas', () => {
+    const fixo = (category: string, date: string, description: string, amountCents: number) =>
+      ctx.app.inject({
+        method: 'POST',
+        url: '/api/transactions',
+        headers: user.headers,
+        payload: { categoryId: user.cat(category), date, amountCents, description, isFixed: true }
+      });
+    const pago = (externalId: string, date: string, description: string, amountCents: number, bankCategory = 'Digital services') => ({
+      externalId,
+      date,
+      amountCents,
+      kind: 'saida',
+      description,
+      bankCategory,
+      status: 'POSTED'
+    });
+
+    it('o pagamento em outro dia do mês liga ao fixo, mesmo com outro nome', async () => {
+      await fixo('Assinaturas', '2026-10-17', 'Netflix', 4490);
+      await fixo('Assinaturas', '2026-10-17', 'YouTube Premium', 1690);
+      await fixo('Assinaturas', '2026-10-17', 'Meli+', 1990);
+      await fixo('Moradia', '2026-10-05', 'Aluguel condomínio', 113739);
+      const r = (
+        await send([
+          pago('n', '2026-10-29', 'Netflix.Com', 4490),
+          pago('y', '2026-10-21', 'Google Youtubepremium', 1690),
+          pago('m', '2026-10-25', 'Mp *Melimais', 1990),
+          // Aluguel pago por Pix para a imobiliária: nome diferente, mesmo valor.
+          pago('a', '2026-10-10', 'Transferência enviada pelo Pix|IMOBILIARIA CENTRAL', 113739, 'Transfers')
+        ])
+      ).json();
+      expect(r).toMatchObject({ created: 0, linked: 4 });
+      expect(r.items.every((i: { reason?: string }) => i.reason === 'conta fixa')).toBe(true);
+      const txs = await list();
+      expect(txs).toHaveLength(4);
+      // Fica o nome do fixo, com a data em que foi pago.
+      expect(txs.find((t: { description: string }) => t.description === 'Netflix')).toMatchObject({ date: '2026-10-29', isFixed: true, source: 'Nubank cartão' });
+      expect(txs.find((t: { description: string }) => t.description === 'Aluguel condomínio')).toMatchObject({ date: '2026-10-10' });
+    });
+
+    it('valor um pouco diferente com o mesmo nome acerta o valor do fixo', async () => {
+      await fixo('Contas', '2026-11-10', 'Internet Algar', 5990);
+      const r = (await send([pago('i', '2026-11-26', 'Transferência enviada pelo Pix|ALGAR TELECOM S/A', 6043, 'Telecommunications')])).json();
+      expect(r.linked).toBe(1);
+      expect((await list())[0]).toMatchObject({ description: 'Internet Algar', amountCents: 6043 });
+    });
+
+    it('boleto da imobiliária com valor do mês liga ao aluguel fixo; mercado não liga ao "Mercado" fixo', async () => {
+      await fixo('Moradia', '2026-11-16', 'Aluguel condomínio', 113739);
+      await fixo('Moradia', '2026-11-17', 'Aluguel Vaga', 10000);
+      await fixo('Alimentação', '2026-11-17', 'Mercado', 73054);
+      const r = (
+        await send([
+          pago('ivan', '2026-11-13', 'Pagamento efetuado|IVAN NEGOCIOS IMOBILIARIOS LTD', 126716, 'Entrepreneurial activities'),
+          pago('cond', '2026-11-09', 'Pagamento efetuado|CONDOMINIO EDIFICIO BARBARA SILVA I', 15000, 'Housing'),
+          pago('super', '2026-11-20', 'Compra no débito|SUPERMERCADO DANYELLA', 70000, 'Groceries')
+        ])
+      ).json();
+      expect(r.items.map((i: { result: string }) => i.result)).toEqual(['linked', 'created', 'created']);
+      const aluguel = (await list()).find((t: { description: string }) => t.description === 'Aluguel condomínio');
+      expect(aluguel).toMatchObject({ amountCents: 126716, date: '2026-11-13', categoryName: 'Moradia' });
+    });
+
+    it('não liga a fixo de outro mês, de outro valor sem nome em comum, nem duas vezes ao mesmo', async () => {
+      await fixo('Assinaturas', '2026-09-17', 'Netflix', 4490);
+      await fixo('Alimentação', '2026-10-17', 'Mercado', 73054);
+      await fixo('Assinaturas', '2026-10-17', 'Google One', 999);
+      const r = (
+        await send([
+          pago('n', '2026-10-29', 'Netflix.Com', 4490),
+          pago('mm', '2026-10-20', 'Mart Minas', 19351, 'Groceries'),
+          pago('g1', '2026-10-25', 'Google One', 999),
+          pago('g2', '2026-10-26', 'Google One', 999)
+        ])
+      ).json();
+      expect(r.items.map((i: { result: string }) => i.result)).toEqual(['created', 'created', 'linked', 'created']);
+    });
+
+    it('"Copiar fixos" aproveita o pagamento que o banco já trouxe no mês', async () => {
+      await fixo('Assinaturas', '2026-10-17', 'Claude', 11000);
+      await fixo('Assinaturas', '2026-10-17', 'Netflix', 4490);
+      await send([pago('c', '2026-11-05', 'Google Claude By Anth', 11000, 'Internet')]);
+      const copy = (
+        await ctx.app.inject({ method: 'POST', url: '/api/transactions/copy-fixed', headers: user.headers, payload: { from: '2026-10', to: '2026-11' } })
+      ).json();
+      expect(copy).toMatchObject({ created: 1, merged: 1 });
+      const nov = (await list()).filter((t: { date: string }) => t.date.startsWith('2026-11'));
+      expect(nov).toHaveLength(2);
+      expect(nov.find((t: { amountCents: number }) => t.amountCents === 11000)).toMatchObject({
+        description: 'Claude',
+        categoryName: 'Assinaturas',
+        isFixed: true,
+        needsReview: false,
+        date: '2026-11-05'
+      });
+      // Copiar de novo não duplica nada.
+      const again = (
+        await ctx.app.inject({ method: 'POST', url: '/api/transactions/copy-fixed', headers: user.headers, payload: { from: '2026-10', to: '2026-11' } })
+      ).json();
+      expect(again).toMatchObject({ created: 0, merged: 0, skipped: 2 });
+    });
+  });
+
   it('ignora pagamento de fatura e o que é anterior à data inicial', async () => {
     const r = (
       await send(
@@ -248,7 +352,7 @@ describe('descrições e categorias do extrato', () => {
     ['Uberlandia', 'saida', 'Taxi and ride-hailing', 'Transporte'],
     ['Pg *Hinova Itucar Prot', 'saida', 'Shopping', 'Transporte'],
     ['Pix de Fulano', 'entrada', 'Transfers', 'Outras receitas'],
-    ['Pagamento a Ivan Negocios Imobiliarios Ltd', 'saida', 'Entrepreneurial activities', 'Imprevistos/Outros']
+    ['Pagamento a Ivan Negocios Imobiliarios Ltd', 'saida', 'Entrepreneurial activities', 'Moradia']
   ] as const)('"%s" (%s, %s) → %s', (desc, kind, bank, expected) => {
     expect(categorizeBank(desc, kind, bank, [])).toBe(expected);
   });

@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
+import { bestFixedMatch } from '../lib/fixed.js';
 import type { Db } from '../db.js';
 import { HttpError } from '../server.js';
 import { MONTH_RE, daysInMonth, monthStart, nextInstallment } from '../lib/money.js';
@@ -155,6 +156,8 @@ export const transactionRoutes: FastifyPluginAsync = async (app) => {
   /**
    * Copia os gastos e receitas fixos de um mês para outro.
    * Avança parcelas "(n/N)" e pula as que já terminaram; não duplica o que já foi copiado.
+   * Se o banco já trouxe o pagamento no mês de destino (ex.: a assinatura cobrada antes da cópia),
+   * o lançamento importado vira o fixo, com o nome e a categoria do fixo e o valor que foi pago.
    */
   app.post('/copy-fixed', async (req) => {
     const { from, to } = z.object({ from: month, to: month }).parse(req.body);
@@ -162,17 +165,30 @@ export const transactionRoutes: FastifyPluginAsync = async (app) => {
     const userId = req.user.sub;
 
     return app.db.transaction(async (tx) => {
-      const source = await tx.query<{ categoryId: number; day: number; description: string; amountCents: number }>(
-        `select category_id as "categoryId", extract(day from date)::int as day, description, amount_cents as "amountCents"
-         from transactions where user_id = $1 and is_fixed
-           and date >= $2::date and date < ($2::date + interval '1 month')
-         order by date, id`,
+      const source = await tx.query<{ categoryId: number; kind: string; category: string; day: number; description: string; amountCents: number }>(
+        `select t.category_id as "categoryId", c.kind, c.name as category, extract(day from t.date)::int as day, t.description, t.amount_cents as "amountCents"
+         from transactions t join categories c on c.id = t.category_id where t.user_id = $1 and t.is_fixed
+           and t.date >= $2::date and t.date < ($2::date + interval '1 month')
+         order by t.date, t.id`,
         [userId, monthStart(from)]
       );
+      // Importados do banco no mês de destino que ainda não são fixos: podem ser o pagamento de um fixo.
+      const imported = (
+        await tx.query<{ id: number; kind: string; category: string; description: string; amountCents: number }>(
+          `select t.id, c.kind, c.name as category, t.description, t.amount_cents as "amountCents"
+           from transactions t join categories c on c.id = t.category_id
+           where t.user_id = $1 and not t.is_fixed
+             and t.date >= $2::date and t.date < ($2::date + interval '1 month')
+             and exists (select 1 from bank_refs r where r.transaction_id = t.id)
+           order by t.date, t.id`,
+          [userId, monthStart(to)]
+        )
+      ).rows;
       const lastDay = daysInMonth(to);
       let created = 0;
       let skipped = 0;
       let finished = 0;
+      let merged = 0;
 
       for (const s of source.rows) {
         const description = nextInstallment(s.description);
@@ -189,6 +205,20 @@ export const transactionRoutes: FastifyPluginAsync = async (app) => {
           skipped++;
           continue;
         }
+        const paid = bestFixedMatch(
+          imported.filter((t) => t.kind === s.kind),
+          s
+        );
+        if (paid) {
+          imported.splice(imported.indexOf(paid), 1);
+          await tx.query(
+            `update transactions set is_fixed = true, description = $3, category_id = $4, needs_review = false, updated_at = now()
+             where id = $1 and user_id = $2`,
+            [paid.id, userId, description, s.categoryId]
+          );
+          merged++;
+          continue;
+        }
         const date = `${to}-${String(Math.min(s.day, lastDay)).padStart(2, '0')}`;
         await tx.query(
           `insert into transactions (user_id, category_id, date, description, amount_cents, is_fixed)
@@ -197,7 +227,7 @@ export const transactionRoutes: FastifyPluginAsync = async (app) => {
         );
         created++;
       }
-      return { created, skipped, finished };
+      return { created, skipped, finished, merged };
     });
   });
 };
