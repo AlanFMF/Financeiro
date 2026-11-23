@@ -172,6 +172,8 @@ export async function buildApp(opts: AppOptions) {
   const mail: { state: 'desligado' | 'verificando' | 'ok' | 'erro'; checkedAt?: string; reason?: string } = {
     state: opts.mailer ? 'verificando' : 'desligado'
   };
+  let retry: NodeJS.Timeout | undefined;
+  let closing = false;
   const checkMail = async () => {
     if (!opts.mailer?.check) {
       if (opts.mailer) mail.state = 'ok';
@@ -188,6 +190,11 @@ export async function buildApp(opts: AppOptions) {
       app.log.error({ err }, 'chave de e-mail recusada: a recuperação de senha não vai funcionar');
     }
     mail.checkedAt = new Date().toISOString();
+    // Com erro (chave nova, IP ainda não liberado no Brevo), tenta de novo em 5 minutos: corrigir não exige reiniciar.
+    if (mail.state === 'erro' && !closing) {
+      retry = setTimeout(() => void checkMail(), 5 * 60 * 1000);
+      retry.unref();
+    }
   };
   if (opts.mailer) {
     app.addHook('onReady', async () => {
@@ -195,7 +202,11 @@ export async function buildApp(opts: AppOptions) {
     });
     const weekly = setInterval(() => void checkMail(), 7 * 24 * 60 * 60 * 1000);
     weekly.unref();
-    app.addHook('onClose', async () => clearInterval(weekly));
+    app.addHook('onClose', async () => {
+      closing = true;
+      clearInterval(weekly);
+      clearTimeout(retry);
+    });
   }
 
   app.get('/api/health', async () => {
