@@ -220,6 +220,35 @@ describe('provedores de e-mail', () => {
     expect(await make(async () => Promise.reject(new Error('Brevo: Key not found')))).toEqual({ ok: true, mail: 'erro', mailError: 'Brevo: Key not found' });
   });
 
+  it('falha no envio aparece em /api/health, sem o destinatário, e some quando um envio dá certo', async () => {
+    const d = await createPgliteDb();
+    await migrate(d);
+    let fail = true;
+    const a = await buildApp({
+      db: d,
+      jwtSecret: 'test',
+      rateLimit: false,
+      mailer: {
+        check: async () => {},
+        send: async () => {
+          if (fail) throw new Error('Brevo: Sender is not valid');
+        }
+      }
+    });
+    await a.ready();
+    await a.inject({ method: 'POST', url: '/api/auth/register', payload: { name: 'Alan', email: 'alan@x.com', password: '12345678' } });
+    await a.inject({ method: 'POST', url: '/api/auth/forgot', payload: { email: 'alan@x.com' } });
+    const h1 = (await a.inject({ method: 'GET', url: '/api/health' })).json();
+    expect(h1.mailSendError).toBe('Brevo: Sender is not valid');
+    expect(JSON.stringify(h1)).not.toContain('alan@x.com');
+    fail = false;
+    await d.query(`update password_resets set created_at = created_at - interval '2 minutes'`);
+    await a.inject({ method: 'POST', url: '/api/auth/forgot', payload: { email: 'alan@x.com' } });
+    expect((await a.inject({ method: 'GET', url: '/api/health' })).json().mailSendError).toBeUndefined();
+    await a.close();
+    await d.close();
+  });
+
   it('escolhe pelo ambiente', () => {
     expect(mailerFromEnv({})).toBeUndefined();
     expect(() => mailerFromEnv({ BREVO_API_KEY: 'k' })).toThrow('MAIL_FROM');

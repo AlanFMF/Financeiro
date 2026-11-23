@@ -169,8 +169,24 @@ export async function buildApp(opts: AppOptions) {
 
   // E-mail (recuperação de senha): confere a chave ao subir e uma vez por semana, o que também evita que a
   // chave do Brevo vença por 90 dias sem uso. O estado aparece em /api/health, sem nenhum segredo.
-  const mail: { state: 'desligado' | 'verificando' | 'ok' | 'erro'; checkedAt?: string; reason?: string } = {
+  const mail: { state: 'desligado' | 'verificando' | 'ok' | 'erro'; checkedAt?: string; reason?: string; sendError?: string } = {
     state: opts.mailer ? 'verificando' : 'desligado'
+  };
+  const cleanMailError = (err: unknown) =>
+    (err instanceof Error ? err.message : String(err)).replace(/xkeysib-[\w-]+|re_[\w-]+/g, '[chave]').slice(0, 300);
+  // A chave pode valer e o envio ainda falhar (remetente não confirmado, conta sem envio liberado): guarda o motivo
+  // da última falha de envio, sem o destinatário, e limpa quando um envio der certo.
+  const mailer: Mailer | undefined = opts.mailer && {
+    check: opts.mailer.check?.bind(opts.mailer),
+    send: async (m) => {
+      try {
+        await opts.mailer!.send(m);
+        mail.sendError = undefined;
+      } catch (err) {
+        mail.sendError = cleanMailError(err);
+        throw err;
+      }
+    }
   };
   let retry: NodeJS.Timeout | undefined;
   let closing = false;
@@ -186,7 +202,7 @@ export async function buildApp(opts: AppOptions) {
     } catch (err) {
       mail.state = 'erro';
       // A mensagem do provedor ("Key not found", "unrecognised IP address") ajuda a corrigir e não tem segredo.
-      mail.reason = (err instanceof Error ? err.message : String(err)).replace(/xkeysib-[\w-]+|re_[\w-]+/g, '[chave]').slice(0, 200);
+      mail.reason = cleanMailError(err);
       app.log.error({ err }, 'chave de e-mail recusada: a recuperação de senha não vai funcionar');
     }
     mail.checkedAt = new Date().toISOString();
@@ -211,7 +227,12 @@ export async function buildApp(opts: AppOptions) {
 
   app.get('/api/health', async () => {
     await opts.db.query('select 1');
-    return { ok: true, mail: mail.state, ...(mail.reason ? { mailError: mail.reason } : {}) };
+    return {
+      ok: true,
+      mail: mail.state,
+      ...(mail.reason ? { mailError: mail.reason } : {}),
+      ...(mail.sendError ? { mailSendError: mail.sendError } : {})
+    };
   });
 
   const tg = opts.telegram ?? {};
@@ -220,7 +241,7 @@ export async function buildApp(opts: AppOptions) {
     prefix: '/api/auth',
     rateLimit: opts.rateLimit ?? true,
     secret: opts.jwtSecret,
-    mailer: opts.mailer,
+    mailer,
     onPasswordChanged: (userId, version) => passwordVersions.set(userId, version)
   });
   await app.register(categoryRoutes, { prefix: '/api/categories' });

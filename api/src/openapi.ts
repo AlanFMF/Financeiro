@@ -163,7 +163,8 @@ export const openapi = {
               {
                 ok: bool,
                 mail: { type: 'string', enum: ['desligado', 'verificando', 'ok', 'erro'] },
-                mailError: { ...str, description: 'Motivo dado pelo provedor quando mail = erro' }
+                mailError: { ...str, description: 'Motivo dado pelo provedor quando mail = erro' },
+                mailSendError: { ...str, description: 'Motivo da última falha de envio (sem o destinatário); some quando um envio dá certo' }
               },
               ['ok', 'mail']
             )
