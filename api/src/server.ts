@@ -169,7 +169,9 @@ export async function buildApp(opts: AppOptions) {
 
   // E-mail (recuperação de senha): confere a chave ao subir e uma vez por semana, o que também evita que a
   // chave do Brevo vença por 90 dias sem uso. O estado aparece em /api/health, sem nenhum segredo.
-  const mail: { state: 'desligado' | 'verificando' | 'ok' | 'erro'; checkedAt?: string } = { state: opts.mailer ? 'verificando' : 'desligado' };
+  const mail: { state: 'desligado' | 'verificando' | 'ok' | 'erro'; checkedAt?: string; reason?: string } = {
+    state: opts.mailer ? 'verificando' : 'desligado'
+  };
   const checkMail = async () => {
     if (!opts.mailer?.check) {
       if (opts.mailer) mail.state = 'ok';
@@ -178,8 +180,11 @@ export async function buildApp(opts: AppOptions) {
     try {
       await opts.mailer.check();
       mail.state = 'ok';
+      mail.reason = undefined;
     } catch (err) {
       mail.state = 'erro';
+      // A mensagem do provedor ("Key not found", "unrecognised IP address") ajuda a corrigir e não tem segredo.
+      mail.reason = (err instanceof Error ? err.message : String(err)).replace(/xkeysib-[\w-]+|re_[\w-]+/g, '[chave]').slice(0, 200);
       app.log.error({ err }, 'chave de e-mail recusada: a recuperação de senha não vai funcionar');
     }
     mail.checkedAt = new Date().toISOString();
@@ -195,7 +200,7 @@ export async function buildApp(opts: AppOptions) {
 
   app.get('/api/health', async () => {
     await opts.db.query('select 1');
-    return { ok: true, mail: mail.state };
+    return { ok: true, mail: mail.state, ...(mail.reason ? { mailError: mail.reason } : {}) };
   });
 
   const tg = opts.telegram ?? {};

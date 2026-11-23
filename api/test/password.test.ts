@@ -217,7 +217,7 @@ describe('provedores de e-mail', () => {
       return health;
     };
     expect(await make(async () => {})).toEqual({ ok: true, mail: 'ok' });
-    expect(await make(async () => Promise.reject(new Error('Brevo: Key not found')))).toEqual({ ok: true, mail: 'erro' });
+    expect(await make(async () => Promise.reject(new Error('Brevo: Key not found')))).toEqual({ ok: true, mail: 'erro', mailError: 'Brevo: Key not found' });
   });
 
   it('escolhe pelo ambiente', () => {

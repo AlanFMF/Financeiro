@@ -157,7 +157,18 @@ export const openapi = {
         summary: 'Saúde da API, do banco e do envio de e-mail',
         description: 'mail: desligado (sem chave), verificando, ok ou erro (chave recusada pelo provedor). A chave é conferida ao subir e uma vez por semana.',
         security: [],
-        responses: { 200: json(obj({ ok: bool, mail: { type: 'string', enum: ['desligado', 'verificando', 'ok', 'erro'] } })) }
+        responses: {
+          200: json(
+            obj(
+              {
+                ok: bool,
+                mail: { type: 'string', enum: ['desligado', 'verificando', 'ok', 'erro'] },
+                mailError: { ...str, description: 'Motivo dado pelo provedor quando mail = erro' }
+              },
+              ['ok', 'mail']
+            )
+          )
+        }
       }
     },
     '/api/ping': { get: { tags: ['Conta'], summary: 'Saúde sem tocar no banco', security: [], responses: { 200: json(obj({ ok: bool })) } } },
