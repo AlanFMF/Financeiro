@@ -95,7 +95,7 @@ export function LoginPage() {
             <h2>Esqueci minha senha</h2>
             <p className="muted">
               {codeSent ??
-                'Informe o e-mail da conta. Mandamos um código de 6 números pelo Telegram ligado à conta (ou por e-mail, se o servidor tiver).'}
+                'Informe o e-mail da sua conta. Mandamos para ele um código de 6 números para você criar uma senha nova.'}
             </p>
           </div>
         ) : (

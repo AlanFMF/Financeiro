@@ -14,7 +14,6 @@ import { assistantRoutes, createAssistant, type AssistantOptions } from './assis
 import { whatsappRoutes } from './whatsapp/route.js';
 import { telegramRoutes } from './telegram/route.js';
 import type { Mailer } from './lib/mailer.js';
-import type { ResetChannel } from './routes/auth.js';
 import { createTelegramClient, webhookSecret, type TelegramClient } from './telegram/client.js';
 import { createWhatsAppSender, type WhatsAppSender } from './whatsapp/client.js';
 import { createProviderSession, verifyApiKey } from './assistant/providers.js';
@@ -175,36 +174,11 @@ export async function buildApp(opts: AppOptions) {
 
   const tg = opts.telegram ?? {};
   const tgClient = tg.client ?? (tg.token ? createTelegramClient(tg.token) : undefined);
-  // Esqueci minha senha: o código vai pelo Telegram ligado à conta e, se houver chave do Resend, por e-mail.
-  const resetChannels: ResetChannel[] = [];
-  if (tgClient) {
-    resetChannels.push({
-      name: 'telegram',
-      async send(user, text) {
-        const link = (
-          await opts.db.query<{ external_id: string }>(`select external_id from chat_links where user_id = $1 and channel = 'telegram'`, [user.id])
-        ).rows[0];
-        if (!link) return false;
-        await tgClient.sendMessage(link.external_id, text);
-        return true;
-      }
-    });
-  }
-  if (opts.mailer) {
-    const mailer = opts.mailer;
-    resetChannels.push({
-      name: 'email',
-      async send(user, text) {
-        await mailer.send({ to: user.email, subject: 'Saldo: código para criar uma nova senha', text });
-        return true;
-      }
-    });
-  }
   await app.register(authRoutes, {
     prefix: '/api/auth',
     rateLimit: opts.rateLimit ?? true,
     secret: opts.jwtSecret,
-    resetChannels,
+    mailer: opts.mailer,
     onPasswordChanged: (userId, version) => passwordVersions.set(userId, version)
   });
   await app.register(categoryRoutes, { prefix: '/api/categories' });

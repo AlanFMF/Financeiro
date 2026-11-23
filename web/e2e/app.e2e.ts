@@ -173,13 +173,13 @@ test('mudança feita fora do app (Telegram, outro aparelho) aparece sozinha na t
 });
 
 test('esqueci minha senha: pede o código, cria a senha nova e entra', async ({ page, request }) => {
-  // Conta real; o envio do código (Telegram/e-mail) é simulado, o resto passa pela tela.
+  // Conta real; o envio do código por e-mail é simulado, o resto passa pela tela.
   const email = `esqueci-${Date.now()}@teste.com`;
   const reg = await request.post('http://localhost:3333/api/auth/register', { data: { name: 'Alan', email, password: 'senha-antiga-1' } });
   const session = await reg.json();
   let resetBody: Record<string, string> | null = null;
   await page.route('**/api/auth/forgot', (route) =>
-    route.fulfill({ json: { message: 'Se existir uma conta com esse e-mail, mandamos um código pelo Telegram ligado à conta. Ele vale por 15 minutos.', channels: ['telegram'] } })
+    route.fulfill({ json: { message: 'Se existir uma conta com esse e-mail, mandamos um código para ele. Ele vale por 15 minutos; confira também o spam.' } })
   );
   await page.route('**/api/auth/reset', (route) => {
     resetBody = route.request().postDataJSON();
@@ -191,7 +191,7 @@ test('esqueci minha senha: pede o código, cria a senha nova e entra', async ({ 
   await expect(page.getByRole('heading', { name: 'Esqueci minha senha' })).toBeVisible();
   await page.locator('input[type=email]').fill(email);
   await page.getByRole('button', { name: 'Enviar código' }).click();
-  await expect(page.getByText('mandamos um código pelo Telegram')).toBeVisible();
+  await expect(page.getByText('mandamos um código para ele')).toBeVisible();
 
   await page.locator('input[autocomplete=one-time-code]').fill('123 456')  // colado do Telegram com espaço;
   await page.locator('input[type=password]').fill('senha-nova-123');

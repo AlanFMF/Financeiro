@@ -187,13 +187,13 @@ export const openapi = {
         tags: ['Conta'],
         summary: 'Esqueci minha senha: manda um código de 6 dígitos',
         description:
-          'O código vai pelo Telegram ligado à conta e, se o servidor tiver RESEND_API_KEY, por e-mail. Vale 15 minutos, aceita 5 tentativas e é guardado só como HMAC. A resposta é a mesma exista ou não a conta.',
+          'O código vai para o e-mail da conta (Brevo ou Resend, por API HTTP). Vale 15 minutos, aceita 5 tentativas e é guardado só como HMAC. A resposta é a mesma exista ou não a conta.',
         security: [],
         requestBody: body(obj({ email: str })),
         responses: {
-          200: json(obj({ message: str, channels: { type: 'array', items: { type: 'string', enum: ['telegram', 'email'] } } })),
+          200: json(obj({ message: str })),
           400: errors[400],
-          503: json(ref('Error'), 'Nenhum canal de recuperação configurado no servidor')
+          503: json(ref('Error'), 'Envio de e-mail não configurado no servidor')
         }
       }
     },

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createPgliteDb, migrate, type Db } from '../src/db.js';
 import { buildApp } from '../src/server.js';
-import { createResendMailer } from '../src/lib/mailer.js';
+import { createBrevoMailer, createResendMailer, mailerFromEnv, type MailMessage } from '../src/lib/mailer.js';
 
 let db: Db | null = null;
 let app: Awaited<ReturnType<typeof buildApp>> | null = null;
@@ -13,12 +13,12 @@ afterEach(async () => {
   db = null;
 });
 
-async function setup({ telegram = true, email = false } = {}) {
+async function setup({ telegram = true, email = true } = {}) {
   const d = await createPgliteDb();
   db = d;
   await migrate(d);
   const tgSent: { to: string; text: string }[] = [];
-  const mails: { to: string; subject: string; text: string }[] = [];
+  const mails: MailMessage[] = [];
   const a = await buildApp({
     db: d,
     jwtSecret: 'test',
@@ -35,7 +35,7 @@ async function setup({ telegram = true, email = false } = {}) {
           }
         }
       : {}),
-    ...(email ? { mailer: { send: async (m: { to: string; subject: string; text: string }) => void mails.push(m) } } : {})
+    ...(email ? { mailer: { send: async (m: MailMessage) => void mails.push(m) } } : {})
   });
   app = a;
   await a.ready();
@@ -64,17 +64,20 @@ async function setup({ telegram = true, email = false } = {}) {
 }
 
 describe('esqueci minha senha', () => {
-  it('manda o código pelo Telegram ligado, troca a senha, entra e derruba as sessões antigas', async () => {
+  it('manda o código por e-mail, troca a senha, entra e derruba as sessões antigas', async () => {
     const t = await setup();
     await t.linkTelegram();
 
     const r = await t.forgot('  ALAN@x.com ');
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toMatchObject({ channels: ['telegram'] });
-    expect(r.json().message).toContain('pelo Telegram ligado à conta');
-    expect(t.tgSent).toHaveLength(1);
-    expect(t.tgSent[0].to).toBe('77');
-    const code = t.codeFrom(t.tgSent[0].text);
+    expect(r.json().message).toContain('mandamos um código para ele');
+    expect(t.mails).toHaveLength(1);
+    expect(t.mails[0]).toMatchObject({ to: 'alan@x.com', subject: expect.stringMatching(/^Saldo: seu código é \d{6}$/) });
+    expect(t.mails[0].text).toContain('Oi, Alan!');
+    expect(t.mails[0].html).toContain('Oi, Alan!');
+    // Pelo Telegram, nada: a recuperação é só por e-mail.
+    expect(t.tgSent).toEqual([]);
+    const code = t.codeFrom(t.mails[0].text);
     // O código não fica guardado em texto no banco.
     const stored = (await t.d.query<{ code_hash: string }>('select code_hash from password_resets')).rows[0];
     expect(stored.code_hash).not.toContain(code);
@@ -92,26 +95,32 @@ describe('esqueci minha senha', () => {
     expect(old.statusCode).toBe(401);
     expect(old.json().error).toContain('senha foi trocada');
     expect((await me(newToken)).statusCode).toBe(200);
-    // O código usado não vale de novo, e o Telegram avisa da troca.
+    // O código usado não vale de novo, e um e-mail avisa da troca.
     expect((await t.reset(code, 'outra-senha-99')).statusCode).toBe(400);
     await new Promise((r) => setTimeout(r, 20));
-    expect(t.tgSent.at(-1)!.text).toContain('sua senha foi trocada');
+    expect(t.mails.at(-1)).toMatchObject({ to: 'alan@x.com', subject: 'Saldo: sua senha foi trocada' });
   });
 
-  it('não revela se o e-mail existe e não manda nada para conta sem canal', async () => {
+  it('nome com HTML não vira HTML no e-mail', async () => {
+    const t = await setup();
+    await t.d.query(`update users set name = '<b>Alan</b> Fabrício'`);
+    await t.forgot('alan@x.com');
+    expect(t.mails[0].html).toContain('&lt;b&gt;Alan&lt;/b&gt;');
+    expect(t.mails[0].html).not.toContain('<b>Alan');
+  });
+
+  it('não revela se o e-mail existe', async () => {
     const t = await setup();
     const existe = await t.forgot('alan@x.com');
     const naoExiste = await t.forgot('ninguem@x.com');
     expect(existe.json()).toEqual(naoExiste.json());
-    // Conta sem Telegram ligado: nada sai pelo bot.
-    expect(t.tgSent).toEqual([]);
+    expect(t.mails.map((m) => m.to)).toEqual(['alan@x.com']);
   });
 
   it('limita tentativas, vence em 15 minutos e um código novo anula o anterior', async () => {
     const t = await setup();
-    await t.linkTelegram();
-    await t.forgot('alan@x.com');
-    const code = t.codeFrom(t.tgSent[0].text);
+        await t.forgot('alan@x.com');
+    const code = t.codeFrom(t.mails[0].text);
     const wrong = code === '000000' ? '111111' : '000000';
 
     const r1 = await t.reset(wrong);
@@ -123,14 +132,14 @@ describe('esqueci minha senha', () => {
 
     // Pedido repetido em menos de 1 minuto não manda outro código.
     await t.forgot('alan@x.com');
-    expect(t.tgSent).toHaveLength(1);
+    expect(t.mails).toHaveLength(1);
 
     await t.age();
     await t.forgot('alan@x.com');
-    const first = t.codeFrom(t.tgSent[1].text);
+    const first = t.codeFrom(t.mails[1].text);
     await t.age();
     await t.forgot('alan@x.com');
-    const second = t.codeFrom(t.tgSent[2].text);
+    const second = t.codeFrom(t.mails[2].text);
     if (first !== second) expect((await t.reset(first)).statusCode).toBe(400);
 
     await t.d.query(`update password_resets set expires_at = now() - interval '1 second'`);
@@ -146,27 +155,50 @@ describe('esqueci minha senha', () => {
     expect(JSON.stringify(curta.json())).toContain('8 caracteres');
   });
 
-  it('com e-mail configurado, manda pelos dois canais', async () => {
-    const t = await setup({ email: true });
-    const r = (await t.forgot('alan@x.com')).json();
-    expect(r.channels).toEqual(['telegram', 'email']);
-    expect(r.message).toContain('pelo Telegram ligado à conta ou por e-mail');
-    expect(t.mails).toHaveLength(1);
-    expect(t.mails[0]).toMatchObject({ to: 'alan@x.com', subject: expect.stringContaining('nova senha') });
-    const code = t.codeFrom(t.mails[0].text);
-    expect((await t.reset(code)).statusCode).toBe(200);
-  });
-
-  it('sem Telegram nem e-mail no servidor, avisa que não está configurado', async () => {
-    const t = await setup({ telegram: false });
+  it('sem e-mail configurado no servidor, avisa (mesmo com Telegram ligado)', async () => {
+    const t = await setup({ email: false });
+    await t.linkTelegram();
     const r = await t.forgot('alan@x.com');
     expect(r.statusCode).toBe(503);
+    expect(r.json().error).toContain('envio de e-mail');
+    expect(t.tgSent).toEqual([]);
   });
 
   it('abrir o app renova a sessão', async () => {
     const t = await setup();
     const me = (await t.a.inject({ method: 'GET', url: '/api/auth/me', headers: { authorization: `Bearer ${t.oldToken}` } })).json();
     expect(typeof me.token).toBe('string');
+  });
+});
+
+describe('provedores de e-mail', () => {
+  it('Brevo: remetente verificado, chave no cabeçalho api-key', async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const f = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return calls.length > 1
+        ? new Response(JSON.stringify({ code: 'unauthorized', message: 'Key not found' }), { status: 401 })
+        : new Response('{"messageId":"x"}', { status: 201 });
+    }) as typeof fetch;
+    const m = createBrevoMailer('xkeysib-1', { email: 'alan@gmail.com', name: 'Saldo' }, f);
+    await m.send({ to: 'alan@x.com', subject: 's', text: 't', html: '<p>t</p>' });
+    expect(calls[0].url).toBe('https://api.brevo.com/v3/smtp/email');
+    expect((calls[0].init.headers as Record<string, string>)['api-key']).toBe('xkeysib-1');
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({
+      sender: { email: 'alan@gmail.com', name: 'Saldo' },
+      to: [{ email: 'alan@x.com' }],
+      subject: 's',
+      textContent: 't',
+      htmlContent: '<p>t</p>'
+    });
+    await expect(m.send({ to: 'x@y.com', subject: 's', text: 't' })).rejects.toThrow('Brevo: Key not found');
+  });
+
+  it('escolhe pelo ambiente', () => {
+    expect(mailerFromEnv({})).toBeUndefined();
+    expect(() => mailerFromEnv({ BREVO_API_KEY: 'k' })).toThrow('MAIL_FROM');
+    expect(mailerFromEnv({ BREVO_API_KEY: 'k', MAIL_FROM: 'a@b.com' })).toBeDefined();
+    expect(mailerFromEnv({ RESEND_API_KEY: 'k' })).toBeDefined();
   });
 });
 

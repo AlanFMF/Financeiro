@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { createDefaultCategories } from '../lib/defaults.js';
 import { createDemoUser } from '../lib/demo.js';
 import { HttpError } from '../server.js';
+import type { Mailer } from '../lib/mailer.js';
 
 const registerBody = z.object({
   name: z.string().trim().min(1, 'Informe seu nome').max(80),
@@ -24,24 +25,43 @@ const resetBody = z.object({
   password: registerBody.shape.password
 });
 
-/** Um jeito de entregar o código de recuperação. Devolve se entregou (ex.: o Telegram só entrega se a conta estiver ligada). */
-export interface ResetChannel {
-  name: 'telegram' | 'email';
-  send(user: { id: number; name: string; email: string }, text: string): Promise<boolean>;
-}
-
 export interface AuthOptions {
   rateLimit: boolean;
   /** Segredo do HMAC dos códigos (o mesmo do JWT). */
   secret: string;
-  resetChannels: ResetChannel[];
+  /** Envio do código de recuperação por e-mail. Sem ele, "Esqueci minha senha" responde que não está configurado. */
+  mailer?: Mailer;
   /** Avisa o servidor da nova versão da senha: sessões com versão anterior deixam de valer. */
   onPasswordChanged: (userId: number, version: number) => void;
 }
 
 export const RESET_TTL_MIN = 15;
 export const RESET_MAX_ATTEMPTS = 5;
-const CHANNEL_LABEL = { telegram: 'pelo Telegram ligado à conta', email: 'por e-mail' } as const;
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+const firstName = (name: string) => name.trim().split(/\s+/)[0] || 'olá';
+
+/** E-mail com o código: texto puro e HTML simples (sem imagens nem links, para não parecer golpe). */
+export function resetCodeEmail(name: string, code: string) {
+  const hi = firstName(name);
+  const text = [
+    `Oi, ${hi}!`,
+    '',
+    `Seu código para criar uma nova senha no Saldo é: ${code}`,
+    '',
+    `Ele vale por ${RESET_TTL_MIN} minutos. Volte ao app, digite o código e escolha a senha nova.`,
+    '',
+    'Se não foi você que pediu, ignore este e-mail: sua senha continua a mesma.'
+  ].join('\n');
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#1f2a30;max-width:460px;margin:0 auto;padding:24px">
+<p style="margin:0 0 16px">Oi, ${escapeHtml(hi)}!</p>
+<p style="margin:0 0 12px">Seu código para criar uma nova senha no <strong>Saldo</strong> é:</p>
+<p style="font-size:32px;font-weight:bold;letter-spacing:6px;margin:0 0 16px;font-family:'Courier New',monospace">${code}</p>
+<p style="margin:0 0 12px">Ele vale por ${RESET_TTL_MIN} minutos. Volte ao app, digite o código e escolha a senha nova.</p>
+<p style="margin:0;color:#5b6870;font-size:13px">Se não foi você que pediu, ignore este e-mail: sua senha continua a mesma.</p>
+</div>`;
+  return { subject: `Saldo: seu código é ${code}`, text, html };
+}
 
 type UserRow = { id: number; name: string; email: string; is_demo: boolean; password_hash: string; password_version: number };
 
@@ -58,28 +78,22 @@ export const authRoutes: FastifyPluginAsync<AuthOptions> = async (app, opts) => 
   const limited = opts.rateLimit ? { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } } : {};
   const strict = opts.rateLimit ? { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } } : {};
   const codeHash = (userId: number, code: string) => createHmac('sha256', opts.secret).update(`reset:${userId}:${code}`).digest('hex');
-  const channelText = () => {
-    const names = opts.resetChannels.map((c) => CHANNEL_LABEL[c.name]);
-    return names.length > 1 ? `${names.slice(0, -1).join(', ')} ou ${names.at(-1)}` : names[0];
-  };
 
   /**
-   * Esqueci minha senha: manda um código de 6 dígitos pelo Telegram ligado à conta e/ou por e-mail.
+   * Esqueci minha senha: manda um código de 6 dígitos para o e-mail da conta.
    * A resposta é a mesma exista ou não a conta, para não revelar quais e-mails estão cadastrados.
    */
   app.post('/forgot', strict, async (req) => {
     const { email } = forgotBody.parse(req.body);
-    if (!opts.resetChannels.length) {
-      throw new HttpError(503, 'A recuperação de senha ainda não foi configurada neste servidor (Telegram ou e-mail).');
-    }
+    const mailer = opts.mailer;
+    if (!mailer) throw new HttpError(503, 'O envio de e-mail ainda não foi configurado neste servidor.');
     const answer = {
-      message: `Se existir uma conta com esse e-mail, mandamos um código ${channelText()}. Ele vale por ${RESET_TTL_MIN} minutos.`,
-      channels: opts.resetChannels.map((c) => c.name)
+      message: `Se existir uma conta com esse e-mail, mandamos um código para ele. Ele vale por ${RESET_TTL_MIN} minutos; confira também o spam.`
     };
     const user = (await app.db.query<UserRow>('select id, name, email from users where email = $1 and not is_demo', [email])).rows[0];
     if (!user) return answer;
 
-    // Um pedido por minuto por conta: evita encher o Telegram ou a caixa de entrada.
+    // Um pedido por minuto por conta: evita encher a caixa de entrada.
     const recent = await app.db.query(`select 1 from password_resets where user_id = $1 and created_at > now() - interval '1 minute'`, [user.id]);
     if (recent.rows.length) return answer;
 
@@ -92,13 +106,11 @@ export const authRoutes: FastifyPluginAsync<AuthOptions> = async (app, opts) => 
         RESET_TTL_MIN
       ]);
     });
-    const text = `Saldo: seu código para criar uma nova senha é ${code}. Vale por ${RESET_TTL_MIN} minutos. Se não foi você que pediu, ignore: sua senha continua a mesma.`;
-    for (const channel of opts.resetChannels) {
-      try {
-        await channel.send(user, text);
-      } catch (err) {
-        req.log.warn({ err, channel: channel.name }, 'falha ao enviar código de recuperação');
-      }
+    try {
+      await mailer.send({ to: user.email, ...resetCodeEmail(user.name, code) });
+    } catch (err) {
+      // Não revela a falha (nem se a conta existe); fica no log para quem cuida do servidor.
+      req.log.error({ err }, 'falha ao enviar o e-mail de recuperação');
     }
     return answer;
   });
@@ -140,11 +152,13 @@ export const authRoutes: FastifyPluginAsync<AuthOptions> = async (app, opts) => 
     });
     opts.onPasswordChanged(user.id, version);
 
-    for (const channel of opts.resetChannels) {
-      channel
-        .send(user, 'Saldo: sua senha foi trocada agora. Se não foi você, peça um novo código em "Esqueci minha senha" e troque de novo.')
-        .catch((err) => req.log.warn({ err, channel: channel.name }, 'falha ao avisar troca de senha'));
-    }
+    opts.mailer
+      ?.send({
+        to: user.email,
+        subject: 'Saldo: sua senha foi trocada',
+        text: `Oi, ${firstName(user.name)}! A senha da sua conta no Saldo acabou de ser trocada. Se não foi você, use "Esqueci minha senha" no app para criar outra.`
+      })
+      .catch((err) => req.log.warn({ err }, 'falha ao avisar a troca de senha'));
     return { token: session({ id: user.id, password_version: version }), user: publicUser(user) };
   });
 
