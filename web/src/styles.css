@@ -358,6 +358,26 @@ a {
   opacity: 0.5;
 }
 
+/* ---------- esqueci minha senha ---------- */
+.forgot-link {
+  display: block;
+  margin: 10px auto 0;
+}
+.forgot-head h2 {
+  margin: 0 0 6px;
+  font-size: 1.15rem;
+}
+.forgot-head p {
+  margin: 0 0 14px;
+}
+.forgot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 10px 0 0;
+}
+
 /* ---------- mês ---------- */
 .month-switcher {
   display: flex;

@@ -56,8 +56,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUnauthorizedHandler(signOut);
     if (!tokenStore.get()) return;
     api
-      .get<{ user: User }>('/auth/me')
+      .get<{ user: User; token?: string }>('/auth/me')
       .then((r) => {
+        // Sessão renovada a cada abertura: não expira para quem usa o app.
+        if (r.token) tokenStore.set(r.token);
         rememberUser(r.user);
         setUser(r.user);
       })

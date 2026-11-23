@@ -174,7 +174,39 @@ export const openapi = {
     '/api/auth/demo': {
       post: { tags: ['Conta'], summary: 'Conta temporária com dados fictícios (some em 24 h)', security: [], responses: { 200: json(ref('Auth')) } }
     },
-    '/api/auth/me': { get: { tags: ['Conta'], summary: 'Usuário atual', responses: { 200: json(obj({ user: ref('User') })), 401: errors[401] } } },
+    '/api/auth/me': {
+      get: {
+        tags: ['Conta'],
+        summary: 'Usuário atual e uma sessão renovada',
+        description: 'Devolve um token novo a cada chamada: quem abre o app não é deslogado depois de 30 dias.',
+        responses: { 200: json(obj({ user: ref('User'), token: str })), 401: errors[401] }
+      }
+    },
+    '/api/auth/forgot': {
+      post: {
+        tags: ['Conta'],
+        summary: 'Esqueci minha senha: manda um código de 6 dígitos',
+        description:
+          'O código vai pelo Telegram ligado à conta e, se o servidor tiver RESEND_API_KEY, por e-mail. Vale 15 minutos, aceita 5 tentativas e é guardado só como HMAC. A resposta é a mesma exista ou não a conta.',
+        security: [],
+        requestBody: body(obj({ email: str })),
+        responses: {
+          200: json(obj({ message: str, channels: { type: 'array', items: { type: 'string', enum: ['telegram', 'email'] } } })),
+          400: errors[400],
+          503: json(ref('Error'), 'Nenhum canal de recuperação configurado no servidor')
+        }
+      }
+    },
+    '/api/auth/reset': {
+      post: {
+        tags: ['Conta'],
+        summary: 'Criar nova senha com o código e entrar',
+        description: 'As sessões abertas antes da troca deixam de valer em todos os aparelhos.',
+        security: [],
+        requestBody: body(obj({ email: str, code: { type: 'string', pattern: '^\\d{6}$' }, password: { type: 'string', minLength: 8 } })),
+        responses: { 200: json(ref('Auth')), 400: errors[400] }
+      }
+    },
 
     '/api/categories': {
       get: { tags: ['Categorias e metas'], summary: 'Listar categorias', responses: { 200: json(obj({ categories: { type: 'array', items: ref('Category') } })) } },

@@ -13,6 +13,8 @@ import { importExportRoutes } from './routes/import-export.js';
 import { assistantRoutes, createAssistant, type AssistantOptions } from './assistant/route.js';
 import { whatsappRoutes } from './whatsapp/route.js';
 import { telegramRoutes } from './telegram/route.js';
+import type { Mailer } from './lib/mailer.js';
+import type { ResetChannel } from './routes/auth.js';
 import { createTelegramClient, webhookSecret, type TelegramClient } from './telegram/client.js';
 import { createWhatsAppSender, type WhatsAppSender } from './whatsapp/client.js';
 import { createProviderSession, verifyApiKey } from './assistant/providers.js';
@@ -35,7 +37,7 @@ declare module 'fastify' {
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { sub: number };
+    payload: { sub: number; pv?: number };
     user: { sub: number };
   }
 }
@@ -60,6 +62,8 @@ export interface AppOptions {
     /** Substitui o envio real (testes). */
     sender?: WhatsAppSender;
   };
+  /** Envio de e-mail (recuperação de senha). Opcional. */
+  mailer?: Mailer;
   /** Assistente pelo Telegram. Com o token do bot e o endereço público, o webhook é registrado ao iniciar. */
   telegram?: {
     token?: string;
@@ -96,6 +100,18 @@ export async function buildApp(opts: AppOptions) {
   await app.register(jwt, { secret: opts.jwtSecret, sign: { expiresIn: '30d' } });
   await app.register(rateLimit, { global: false });
 
+  // Versão da senha de cada usuário, em memória para não consultar o banco a cada chamada.
+  const passwordVersions = new Map<number, number>();
+  async function passwordVersion(userId: number) {
+    let v = passwordVersions.get(userId);
+    if (v === undefined) {
+      const { rows } = await opts.db.query<{ v: number }>('select password_version as v from users where id = $1', [userId]);
+      v = rows[0]?.v ?? 0;
+      passwordVersions.set(userId, v);
+    }
+    return v;
+  }
+
   app.decorate('authenticate', async (req: FastifyRequest, reply: FastifyReply) => {
     // Chave de sincronização (tarefa agendada): só pode chamar as rotas de /api/sync.
     const header = req.headers.authorization ?? '';
@@ -115,7 +131,11 @@ export async function buildApp(opts: AppOptions) {
     try {
       await req.jwtVerify();
     } catch {
-      await reply.code(401).send({ error: 'Sua sessão expirou. Entre de novo.' });
+      return reply.code(401).send({ error: 'Sua sessão expirou. Entre de novo.' });
+    }
+    // Depois de trocar a senha, as sessões abertas antes (outro aparelho, alguém com o celular) deixam de valer.
+    if (((req.user as { pv?: number }).pv ?? 0) !== (await passwordVersion(req.user.sub))) {
+      return reply.code(401).send({ error: 'Sua senha foi trocada. Entre de novo.' });
     }
   });
 
@@ -153,7 +173,40 @@ export async function buildApp(opts: AppOptions) {
     return { ok: true };
   });
 
-  await app.register(authRoutes, { prefix: '/api/auth', rateLimit: opts.rateLimit ?? true });
+  const tg = opts.telegram ?? {};
+  const tgClient = tg.client ?? (tg.token ? createTelegramClient(tg.token) : undefined);
+  // Esqueci minha senha: o código vai pelo Telegram ligado à conta e, se houver chave do Resend, por e-mail.
+  const resetChannels: ResetChannel[] = [];
+  if (tgClient) {
+    resetChannels.push({
+      name: 'telegram',
+      async send(user, text) {
+        const link = (
+          await opts.db.query<{ external_id: string }>(`select external_id from chat_links where user_id = $1 and channel = 'telegram'`, [user.id])
+        ).rows[0];
+        if (!link) return false;
+        await tgClient.sendMessage(link.external_id, text);
+        return true;
+      }
+    });
+  }
+  if (opts.mailer) {
+    const mailer = opts.mailer;
+    resetChannels.push({
+      name: 'email',
+      async send(user, text) {
+        await mailer.send({ to: user.email, subject: 'Saldo: código para criar uma nova senha', text });
+        return true;
+      }
+    });
+  }
+  await app.register(authRoutes, {
+    prefix: '/api/auth',
+    rateLimit: opts.rateLimit ?? true,
+    secret: opts.jwtSecret,
+    resetChannels,
+    onPasswordChanged: (userId, version) => passwordVersions.set(userId, version)
+  });
   await app.register(categoryRoutes, { prefix: '/api/categories' });
   await app.register(transactionRoutes, { prefix: '/api/transactions' });
   await app.register(summaryRoutes, { prefix: '/api/summary' });
@@ -196,8 +249,6 @@ export async function buildApp(opts: AppOptions) {
     }
   });
 
-  const tg = opts.telegram ?? {};
-  const tgClient = tg.client ?? (tg.token ? createTelegramClient(tg.token) : undefined);
   const tgSecret = tg.token ? webhookSecret(tg.token) : tg.client ? 'segredo-de-teste' : undefined;
   let tgUsername: string | null = null;
   await app.register(telegramRoutes, {

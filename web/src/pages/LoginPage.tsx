@@ -3,7 +3,7 @@ import { api, ApiError, isNativeApp, serverStore, type User } from '../api';
 import { useAuth } from '../auth';
 import { useSlow, WAKING_MESSAGE } from '../useSlow';
 
-type Mode = 'entrar' | 'criar';
+type Mode = 'entrar' | 'criar' | 'esqueci';
 
 export function LoginPage() {
   const { signIn } = useAuth();
@@ -17,13 +17,16 @@ export function LoginPage() {
   const slow = useSlow(busy);
   const [server, setServer] = useState(serverStore.get());
   const [editServer, setEditServer] = useState(isNativeApp && !serverStore.get());
+  // Esqueci minha senha: primeiro o e-mail, depois o código recebido e a senha nova.
+  const [code, setCode] = useState('');
+  const [codeSent, setCodeSent] = useState<string | null>(null);
 
-  async function go(path: string, body?: unknown) {
+  async function call<T>(path: string, body?: unknown): Promise<T | null> {
     if (isNativeApp) {
       if (!server.trim()) {
         setEditServer(true);
         setError('Informe o endereço do servidor para entrar.');
-        return;
+        return null;
       }
       serverStore.set(server);
     }
@@ -31,23 +34,44 @@ export function LoginPage() {
     setError(null);
     setFieldErrors({});
     try {
-      const r = await api.post<{ token: string; user: User }>(path, body);
-      signIn(r.token, r.user);
+      return await api.post<T>(path, body);
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
         setFieldErrors(Object.fromEntries(err.issues.map((i) => [i.path, i.message])));
       } else setError('Algo deu errado.');
+      return null;
     } finally {
       setBusy(false);
     }
   }
 
-  const submit = (e: FormEvent) => {
+  async function go(path: string, body?: unknown) {
+    const r = await call<{ token: string; user: User }>(path, body);
+    if (r) signIn(r.token, r.user);
+  }
+
+  function switchMode(next: Mode) {
+    setMode(next);
+    setError(null);
+    setFieldErrors({});
+    setCodeSent(null);
+    setCode('');
+    setPassword('');
+  }
+
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (mode === 'entrar') go('/auth/login', { email, password });
-    else go('/auth/register', { name, email, password });
+    else if (mode === 'criar') go('/auth/register', { name, email, password });
+    else if (!codeSent) {
+      const r = await call<{ message: string }>('/auth/forgot', { email });
+      if (r) setCodeSent(r.message);
+    } else go('/auth/reset', { email, code, password });
   };
+
+  const submitLabel =
+    mode === 'entrar' ? 'Entrar' : mode === 'criar' ? 'Criar conta' : codeSent ? 'Salvar nova senha e entrar' : 'Enviar código';
 
   return (
     <div className="login">
@@ -66,14 +90,24 @@ export function LoginPage() {
       </section>
 
       <section className="login-card">
-        <div className="segmented" role="tablist">
-          <button role="tab" aria-selected={mode === 'entrar'} className="seg" onClick={() => setMode('entrar')}>
-            Entrar
-          </button>
-          <button role="tab" aria-selected={mode === 'criar'} className="seg" onClick={() => setMode('criar')}>
-            Criar conta
-          </button>
-        </div>
+        {mode === 'esqueci' ? (
+          <div className="forgot-head">
+            <h2>Esqueci minha senha</h2>
+            <p className="muted">
+              {codeSent ??
+                'Informe o e-mail da conta. Mandamos um código de 6 números pelo Telegram ligado à conta (ou por e-mail, se o servidor tiver).'}
+            </p>
+          </div>
+        ) : (
+          <div className="segmented" role="tablist">
+            <button role="tab" aria-selected={mode === 'entrar'} className="seg" onClick={() => switchMode('entrar')}>
+              Entrar
+            </button>
+            <button role="tab" aria-selected={mode === 'criar'} className="seg" onClick={() => switchMode('criar')}>
+              Criar conta
+            </button>
+          </div>
+        )}
 
         <form onSubmit={submit} noValidate>
           {mode === 'criar' && (
@@ -95,21 +129,37 @@ export function LoginPage() {
             />
             {fieldErrors.email && <small className="field-error">{fieldErrors.email}</small>}
           </label>
-          <label className="field">
-            <span>Senha</span>
-            <input
-              type="password"
-              value={password}
-              autoComplete={mode === 'entrar' ? 'current-password' : 'new-password'}
-              onChange={(e) => setPassword(e.target.value)}
-              aria-invalid={Boolean(fieldErrors.password)}
-            />
-            {fieldErrors.password ? (
-              <small className="field-error">{fieldErrors.password}</small>
-            ) : (
-              mode === 'criar' && <small className="muted">Pelo menos 8 caracteres.</small>
-            )}
-          </label>
+          {mode === 'esqueci' && codeSent && (
+            <label className="field">
+              <span>Código</span>
+              <input
+                value={code}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="000000"
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                aria-invalid={Boolean(fieldErrors.code)}
+              />
+              {fieldErrors.code && <small className="field-error">{fieldErrors.code}</small>}
+            </label>
+          )}
+          {(mode !== 'esqueci' || codeSent) && (
+            <label className="field">
+              <span>{mode === 'esqueci' ? 'Nova senha' : 'Senha'}</span>
+              <input
+                type="password"
+                value={password}
+                autoComplete={mode === 'entrar' ? 'current-password' : 'new-password'}
+                onChange={(e) => setPassword(e.target.value)}
+                aria-invalid={Boolean(fieldErrors.password)}
+              />
+              {fieldErrors.password ? (
+                <small className="field-error">{fieldErrors.password}</small>
+              ) : (
+                mode !== 'entrar' && <small className="muted">Pelo menos 8 caracteres.</small>
+              )}
+            </label>
+          )}
           {error && !Object.keys(fieldErrors).length && (
             <p className="form-error" role="alert">
               {error}
@@ -121,9 +171,27 @@ export function LoginPage() {
             </p>
           )}
           <button className="btn primary block" disabled={busy}>
-            {busy ? 'Aguarde…' : mode === 'entrar' ? 'Entrar' : 'Criar conta'}
+            {busy ? 'Aguarde…' : submitLabel}
           </button>
         </form>
+
+        {mode === 'entrar' && (
+          <button type="button" className="link-btn forgot-link" onClick={() => switchMode('esqueci')}>
+            Esqueci minha senha
+          </button>
+        )}
+        {mode === 'esqueci' && (
+          <p className="forgot-actions">
+            {codeSent && (
+              <button type="button" className="link-btn inline" disabled={busy} onClick={() => setCodeSent(null)}>
+                Não chegou? Pedir outro código
+              </button>
+            )}
+            <button type="button" className="link-btn inline" onClick={() => switchMode('entrar')}>
+              Voltar para entrar
+            </button>
+          </p>
+        )}
 
         {isNativeApp && (
           <div className="server-field">
@@ -140,7 +208,9 @@ export function LoginPage() {
                   value={server}
                   onChange={(e) => setServer(e.target.value)}
                 />
-                <small className="muted">O endereço da API publicada no Render, ou do seu PC na mesma rede Wi-Fi (http://192.168.x.x:3333).</small>
+                <small className="muted">
+                  O endereço da API publicada no Render, ou do seu PC na mesma rede Wi-Fi (http://192.168.x.x:3333).
+                </small>
               </label>
             ) : (
               <p className="muted">

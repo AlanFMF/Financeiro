@@ -6,6 +6,7 @@ try {
 }
 
 import { createPgDb, createPgliteDb, migrate } from './db.js';
+import { createResendMailer } from './lib/mailer.js';
 import { buildApp } from './server.js';
 
 const port = Number(process.env.PORT ?? 3333);
@@ -51,6 +52,11 @@ const app = await buildApp({
     displayNumber: process.env.WHATSAPP_NUMBER,
     apiVersion: process.env.WHATSAPP_API_VERSION
   },
+  // Opcional: e-mail da recuperação de senha pelo Resend (resend.com). Sem domínio próprio, o Resend só entrega
+  // para o e-mail da própria conta do Resend; o Telegram ligado à conta funciona sem nada disso.
+  ...(process.env.RESEND_API_KEY
+    ? { mailer: createResendMailer(process.env.RESEND_API_KEY, process.env.MAIL_FROM ?? 'Saldo <onboarding@resend.dev>') }
+    : {}),
   telegram: {
     token: process.env.TELEGRAM_BOT_TOKEN,
     // O Render define RENDER_EXTERNAL_URL sozinho (https://saldo-api-….onrender.com).
