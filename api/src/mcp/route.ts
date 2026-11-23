@@ -101,7 +101,15 @@ export const mcpRoutes: FastifyPluginAsync<McpOptions> = async (app, opts) => {
     );
 
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: TOOLS.map((t) => ({
+      tools: [
+        {
+          name: 'minha_conta',
+          title: 'Minha conta',
+          description: 'Nome e e-mail da conta do Saldo ligada a este conector (o e-mail é o usado para entrar e para recuperar a senha).',
+          inputSchema: { type: 'object' as const, properties: {} },
+          annotations: { title: 'Minha conta', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+        },
+        ...TOOLS.map((t) => ({
         name: t.name,
         title: TITLES[t.name],
         description: t.description,
@@ -114,11 +122,16 @@ export const mcpRoutes: FastifyPluginAsync<McpOptions> = async (app, opts) => {
           openWorldHint: false
         }
       }))
+      ]
     }));
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const ctx: ToolContext = { db: app.db, userId, categories, today, created: [], updated: [], deleted: [] };
       const name = request.params.name;
+      if (name === 'minha_conta') {
+        const u = (await app.db.query<{ name: string; email: string }>('select name, email from users where id = $1', [userId])).rows[0];
+        return { content: [{ type: 'text' as const, text: `Conta do Saldo: ${u.name} <${u.email}>` }] };
+      }
       if (!TOOLS.some((t) => t.name === name)) {
         return { content: [{ type: 'text' as const, text: `Ferramenta desconhecida: ${name}` }], isError: true };
       }

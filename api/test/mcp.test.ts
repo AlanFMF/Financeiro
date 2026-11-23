@@ -35,6 +35,7 @@ describe('conector do Claude (MCP)', () => {
     const client = await connect(await createKey('mcp'));
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toEqual([
+      'minha_conta',
       'registrar_lancamentos',
       'corrigir_lancamento',
       'excluir_lancamento',
@@ -45,6 +46,7 @@ describe('conector do Claude (MCP)', () => {
       'resumo_do_mes'
     ]);
     expect(tools.find((t) => t.name === 'excluir_lancamento')?.annotations?.destructiveHint).toBe(true);
+    expect(text(await client.callTool({ name: 'minha_conta', arguments: {} }))).toMatch(/^Conta do Saldo: .+ <.+@.+>$/);
     expect(tools.find((t) => t.name === 'resumo_do_mes')?.annotations?.readOnlyHint).toBe(true);
     const instructions = client.getInstructions() ?? '';
     expect(instructions).toContain('- Alimentação (mercado');
