@@ -56,7 +56,7 @@ Nasceu de uma planilha real do Google Sheets que eu uso para organizar as finan�
 | Front | React 18, TypeScript, Vite, TanStack Query, React Router, vite-plugin-pwa |
 | Android | Capacitor 8, APK montado e publicado pelo GitHub Actions |
 | IA | Claude (Messages API), ChatGPT (Responses API) e Gemini (generateContent), com a chave de cada usuário, todos com chamada de ferramentas. Sem SDKs: um adaptador fino por provedor sobre `fetch` |
-| Qualidade | Vitest (228 testes: API, recuperação de senha, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real, WhatsApp e Telegram (texto e áudio) com as APIs simuladas e cobertura da documentação), Playwright de ponta a ponta num celular emulado (inclusive sem internet), GitHub Actions com PostgreSQL 16 real |
+| Qualidade | Vitest (230 testes: API, recuperação de senha, metas, previsão, conferência de importados, interpretador de frases, adaptadores das IAs, assistente com IA simulada, ditado por voz, botão voltar, conector MCP com cliente real, WhatsApp e Telegram (texto e áudio) com as APIs simuladas e cobertura da documentação), Playwright de ponta a ponta num celular emulado (inclusive sem internet), GitHub Actions com PostgreSQL 16 real |
 | Deploy | Vercel (front), Render (API), Neon (PostgreSQL), todos no plano gratuito |
 
 ## Decisões que valem a pena explicar
@@ -116,7 +116,7 @@ npm run build     # build de produção
 
 1. **Banco no [Neon](https://neon.tech):** crie um projeto e copie a connection string (`postgres://...?sslmode=require`).
 2. **API no [Render](https://render.com):** *New, Blueprint*, aponte para este repositório (ele lê o `render.yaml`). Preencha `DATABASE_URL` com a do Neon e `CORS_ORIGIN` com o endereço da Vercel. `JWT_SECRET` e `AI_KEY_SECRET` são gerados sozinhos. As migrações rodam sozinhas ao iniciar.
-   - **E-mail do "Esqueci minha senha"** (opcional, grátis): crie uma conta no [Brevo](https://www.brevo.com), cadastre e confirme o seu e-mail como remetente (*Senders, Domains & Dedicated IPs → Senders*), gere uma chave em *SMTP & API → API Keys* e, no Render, preencha `BREVO_API_KEY` e `MAIL_FROM` (o e-mail confirmado). Sem domínio próprio, alguns e-mails podem cair no spam.
+   - **E-mail do "Esqueci minha senha"** (opcional, grátis): crie uma conta no [Brevo](https://www.brevo.com), cadastre e confirme o seu e-mail como remetente (*Senders, Domains & Dedicated IPs → Senders*), gere uma chave em *SMTP & API → API Keys* e, no Render, preencha `BREVO_API_KEY` e `MAIL_FROM` (o e-mail confirmado). Sem domínio próprio, alguns e-mails podem cair no spam. A chave do Brevo vence depois de 90 dias sem uso; o servidor a confere ao subir e uma vez por semana, o que a mantém viva, e mostra o estado em `/api/health` (`mail: ok`).
 3. **Front no GitHub Pages:** o mesmo workflow que monta o APK publica a versão web em `alanfmf.github.io/Financeiro/app/` (build com `VITE_BASE=/Financeiro/app/`; o `404.html` do site é o próprio app, para as rotas internas funcionarem ao recarregar). Quem preferir a Vercel pode importar o repositório com *Root Directory* `web` e `VITE_API_URL` apontando para a API.
 4. No computador ou no iPhone, abra a versão web e instale pelo menu do navegador (*Instalar app* no Chrome; *Compartilhar, Adicionar à Tela de Início* no Safari).
 

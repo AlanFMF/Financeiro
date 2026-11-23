@@ -194,6 +194,32 @@ describe('provedores de e-mail', () => {
     await expect(m.send({ to: 'x@y.com', subject: 's', text: 't' })).rejects.toThrow('Brevo: Key not found');
   });
 
+  it('Brevo: a verificação da chave não envia nada', async () => {
+    const urls: string[] = [];
+    const f = (async (url: string, init: RequestInit) => {
+      urls.push(`${init.method ?? 'GET'} ${url}`);
+      return new Response('{}');
+    }) as typeof fetch;
+    await createBrevoMailer('k', { email: 'a@b.com', name: 'Saldo' }, f).check!();
+    expect(urls).toEqual(['GET https://api.brevo.com/v3/smtp/statistics/aggregatedReport?days=1']);
+  });
+
+  it('o servidor confere a chave ao subir e mostra o estado em /api/health', async () => {
+    const make = async (check: () => Promise<void>) => {
+      const d = await createPgliteDb();
+      await migrate(d);
+      const a = await buildApp({ db: d, jwtSecret: 'test', rateLimit: false, mailer: { send: async () => {}, check } });
+      await a.ready();
+      await new Promise((r) => setTimeout(r, 10));
+      const health = (await a.inject({ method: 'GET', url: '/api/health' })).json();
+      await a.close();
+      await d.close();
+      return health;
+    };
+    expect(await make(async () => {})).toEqual({ ok: true, mail: 'ok' });
+    expect(await make(async () => Promise.reject(new Error('Brevo: Key not found')))).toEqual({ ok: true, mail: 'erro' });
+  });
+
   it('escolhe pelo ambiente', () => {
     expect(mailerFromEnv({})).toBeUndefined();
     expect(() => mailerFromEnv({ BREVO_API_KEY: 'k' })).toThrow('MAIL_FROM');

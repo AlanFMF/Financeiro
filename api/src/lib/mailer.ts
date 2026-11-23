@@ -12,6 +12,11 @@ export interface MailMessage {
 
 export interface Mailer {
   send(msg: MailMessage): Promise<void>;
+  /**
+   * Confere a chave com uma leitura que não envia nada. No Brevo, a chave vence depois de 90 dias sem uso:
+   * o servidor chama isto uma vez por semana para mantê-la viva (e para saber se ela ainda vale).
+   */
+  check?(): Promise<void>;
 }
 
 async function failure(provider: string, res: Response) {
@@ -26,6 +31,14 @@ export function createBrevoMailer(apiKey: string, from: { email: string; name: s
         method: 'POST',
         headers: { 'api-key': apiKey, 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ sender: from, to: [{ email: to }], subject, textContent: text, ...(html ? { htmlContent: html } : {}) }),
+        signal: AbortSignal.timeout(15_000)
+      });
+      if (!res.ok) throw await failure('Brevo', res);
+    },
+    async check() {
+      // Relatório dos e-mails transacionais do dia: coberto pela mesma permissão de envio ("E-mails transacionais").
+      const res = await fetchImpl('https://api.brevo.com/v3/smtp/statistics/aggregatedReport?days=1', {
+        headers: { 'api-key': apiKey, accept: 'application/json' },
         signal: AbortSignal.timeout(15_000)
       });
       if (!res.ok) throw await failure('Brevo', res);

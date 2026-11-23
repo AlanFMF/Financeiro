@@ -167,9 +167,35 @@ export async function buildApp(opts: AppOptions) {
   /** Para o despertador do GitHub Actions: mantém o servidor acordado sem acordar o banco. */
   app.get('/api/ping', async () => ({ ok: true }));
 
+  // E-mail (recuperação de senha): confere a chave ao subir e uma vez por semana, o que também evita que a
+  // chave do Brevo vença por 90 dias sem uso. O estado aparece em /api/health, sem nenhum segredo.
+  const mail: { state: 'desligado' | 'verificando' | 'ok' | 'erro'; checkedAt?: string } = { state: opts.mailer ? 'verificando' : 'desligado' };
+  const checkMail = async () => {
+    if (!opts.mailer?.check) {
+      if (opts.mailer) mail.state = 'ok';
+      return;
+    }
+    try {
+      await opts.mailer.check();
+      mail.state = 'ok';
+    } catch (err) {
+      mail.state = 'erro';
+      app.log.error({ err }, 'chave de e-mail recusada: a recuperação de senha não vai funcionar');
+    }
+    mail.checkedAt = new Date().toISOString();
+  };
+  if (opts.mailer) {
+    app.addHook('onReady', async () => {
+      void checkMail();
+    });
+    const weekly = setInterval(() => void checkMail(), 7 * 24 * 60 * 60 * 1000);
+    weekly.unref();
+    app.addHook('onClose', async () => clearInterval(weekly));
+  }
+
   app.get('/api/health', async () => {
     await opts.db.query('select 1');
-    return { ok: true };
+    return { ok: true, mail: mail.state };
   });
 
   const tg = opts.telegram ?? {};
